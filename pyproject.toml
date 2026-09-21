@@ -1,0 +1,20 @@
+[project]
+name = "ffr"
+version = "0.1.0"
+description = "Failure-Aware Fast Rerouting in SDN: an educational OpenFlow emulator and study"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+plots = ["matplotlib>=3.5"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ffr*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
