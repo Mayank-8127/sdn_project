@@ -5,9 +5,9 @@ We use constant-bit-rate (CBR) flows: a host sends one packet every
 record which sequence numbers arrived and when. From that we compute:
 
 * **lost packets**: sent minus received,
-* **recovery time**: the longest silence between two consecutive arrivals,
-  minus the normal gap. With 1000 packets/s, losing 37 packets in a row
-  means a ~37 ms outage.
+* **outage / recovery time**: the longest run of consecutively lost packets
+  times the sending interval. With 1000 packets/s, losing 37 packets in a
+  row means a 37 ms outage.
 """
 
 from __future__ import annotations
@@ -35,19 +35,32 @@ class FlowStats:
     def lost(self) -> int:
         return self.sent - self.received
 
-    def outage(self, after: float = 0.0) -> float:
-        """Time without delivery caused by a failure at ``after`` (0 if none).
+    def loss_runs(self) -> list[tuple[int, int]]:
+        """Runs of consecutively lost sequence numbers as (first, last)."""
+        runs: list[tuple[int, int]] = []
+        for seq in range(self.sent):
+            if seq in self.seqs:
+                continue
+            if runs and runs[-1][1] == seq - 1:
+                runs[-1] = (runs[-1][0], seq)
+            else:
+                runs.append((seq, seq))
+        return runs
 
-        Computed as (longest gap around/after the failure) - (normal gap).
-        Uses the last arrival before ``after`` as the start point.
+    def outage(self) -> float:
+        """Duration of the longest delivery interruption, in seconds.
+
+        Measured on the *sending* side: the longest run of consecutive lost
+        packets times the sending interval. With 1000 pkt/s, 37 consecutive
+        losses = 37 ms of outage. If the flow is still broken when it stops
+        sending, it never recovered and the outage is infinite.
         """
-        normal = 1.0 / self.rate
-        before = [t for t in self.arrivals if t < after]
-        times = ([before[-1]] if before else []) + [t for t in self.arrivals if t >= after]
-        if len(times) < 2:
-            return float("inf") if self.lost else 0.0
-        gap = max(b - a for a, b in zip(times, times[1:]))
-        return max(0.0, gap - normal)
+        runs = self.loss_runs()
+        if not runs:
+            return 0.0
+        if runs[-1][1] == self.sent - 1:
+            return float("inf")
+        return max(b - a + 1 for a, b in runs) / self.rate
 
 
 class TrafficManager:

@@ -80,9 +80,8 @@ class Scenario:
         return self.result()
 
     def result(self) -> Result:
-        after = self.first_failure or 0.0
         affected = self.tm.affected()
-        outages = [f.outage(after) for f in affected]
+        outages = [f.outage() for f in affected]
         finite = [o for o in outages if o != float("inf")]
         return Result(
             app=self.ctrl.name,

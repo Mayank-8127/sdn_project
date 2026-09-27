@@ -54,7 +54,7 @@ def test_link_failure_loses_packets_including_in_flight():
     net.sim.run()
     assert 0 < f.lost < 30
     assert net.link("s2", "s3").dropped == f.lost
-    assert f.outage(after=0.05) == pytest.approx(f.lost / 1000, abs=1e-3)
+    assert f.outage() == pytest.approx(f.lost / 1000)  # one contiguous run
 
 
 def test_tags():
