@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Callable
 
 from .openflow import (FlowEntry, FlowMod, FlowTable, Output, PacketIn,
-                       PacketOut, PopTag, SetTag, ToController, Drop)
+                       PacketOut, PortStatus, PopTag, SetTag, ToController, Drop)
 from .packet import Packet
 from .sim import Simulator
 from .topology import LinkSpec, Topology
@@ -89,10 +89,18 @@ class Link:
 
 
 class Port:
+    """A switch port.
+
+    ``live`` is the switch's *belief* about the port. It is not the same as
+    ``link.up``: after a cable is cut, the switch needs some time (the
+    detection time) before it notices and flips ``live`` to False.
+    """
+
     def __init__(self, number: int, link: Link, peer: str):
         self.number = number
         self.link = link
         self.peer = peer  # name of the node at the other end
+        self.live = True
 
 
 class Host:
@@ -211,6 +219,15 @@ class Switch:
         else:
             raise TypeError(f"unknown message {msg!r}")
 
+    def set_port_live(self, port_no: int, live: bool) -> None:
+        """Change our belief about a port and report it (PORT_STATUS)."""
+        port = self.ports[port_no]
+        if port.live == live or not self.alive:
+            return
+        port.live = live
+        if self.controller is not None:
+            self.controller.from_switch(PortStatus(self.name, port_no, port.peer, live))
+
     def port_to(self, peer: str) -> int | None:
         for p in self.ports.values():
             if p.peer == peer:
@@ -228,7 +245,7 @@ class Network:
     """All live objects for one topology."""
 
     def __init__(self, topo: Topology, sim: Simulator | None = None,
-                 rule_install_time: float = 0.001):
+                 rule_install_time: float = 0.001, los_delay: float = 0.001):
         self.topo = topo
         self.sim = sim or Simulator()
         self.switches: dict[str, Switch] = {
@@ -236,6 +253,7 @@ class Network:
         self.hosts: dict[str, Host] = {}
         self.links: dict[frozenset, Link] = {}
         self.host_links: dict[str, Link] = {}
+        self.los_delay = los_delay
 
         for spec in topo.links:
             a, b = self.switches[spec.a], self.switches[spec.b]
@@ -244,6 +262,7 @@ class Network:
             a.ports[pa] = Port(pa, link, b.name)
             b.ports[pb] = Port(pb, link, a.name)
             self.links[spec.key] = link
+            link.listeners.append(self._loss_of_signal)
 
         for hname, sname in topo.hosts.items():
             h, s = Host(self.sim, hname), self.switches[sname]
@@ -253,6 +272,19 @@ class Network:
             s.ports[ps] = Port(ps, link, hname)
             self.hosts[hname] = h
             self.host_links[hname] = link
+
+    def _loss_of_signal(self, link: Link) -> None:
+        """Physical-layer detection: both ends notice ``los_delay`` later.
+
+        This models the transceiver noticing that light/electrical signal
+        disappeared (or came back).
+        """
+        for sw, port in ((link.a, link.a_port), (link.b, link.b_port)):
+            self.sim.schedule(self.los_delay, self._los_update, sw, port, link)
+
+    @staticmethod
+    def _los_update(sw: "Switch", port: int, link: Link) -> None:
+        sw.set_port_live(port, link.up)  # read the state *now* (it may have flapped back)
 
     @staticmethod
     def _next_port(sw: Switch) -> int:

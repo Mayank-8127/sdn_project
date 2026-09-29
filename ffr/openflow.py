@@ -192,6 +192,15 @@ class PacketIn:
 
 
 @dataclass
+class PortStatus:
+    """Switch -> controller: one of my ports changed state (up/down)."""
+    switch: str
+    port: int
+    peer: str
+    live: bool
+
+
+@dataclass
 class PacketOut:
     """Controller -> switch: send this packet out of a port."""
     packet: Packet
