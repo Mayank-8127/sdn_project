@@ -18,8 +18,8 @@ Concrete behaviours ("apps") subclass :class:`Controller` and override the
 
 from __future__ import annotations
 
-from .openflow import FlowMod, Match, PacketIn, PacketOut
-from .routing import Graph
+from .openflow import FlowMod, Match, PacketIn, PacketOut, PortStatus
+from .routing import Edge, Graph, edge
 
 
 class Controller:
@@ -41,6 +41,8 @@ class Controller:
             (s.name, p.peer): p.number for s in net.switches.values() for p in s.ports.values()}
         # host -> switch it is attached to (learned from ARP/PACKET_IN in reality)
         self.host_switch: dict[str, str] = dict(net.topo.hosts)
+        # Links the controller currently believes are down.
+        self.down_links: set[Edge] = set()
         self.msgs_sent = 0
         self.msgs_received = 0
         self.log: list[tuple[float, str]] = []
@@ -65,6 +67,18 @@ class Controller:
         self.msgs_received += 1
         if isinstance(msg, PacketIn):
             self.on_packet_in(msg)
+        elif isinstance(msg, PortStatus):
+            if msg.peer not in self.graph.adj:
+                return  # a host-facing port; not part of the switch graph
+            e = edge(msg.switch, msg.peer)
+            changed = (e not in self.down_links) if not msg.live else (e in self.down_links)
+            if msg.live:
+                self.down_links.discard(e)
+            else:
+                self.down_links.add(e)
+            self.note(f"port_status {msg.switch}:{msg.port}->{msg.peer} "
+                      f"{'UP' if msg.live else 'DOWN'}{'' if changed else ' (dup)'}")
+            self.on_port_status(msg, changed)
         else:
             raise TypeError(f"unexpected message {msg!r}")
 
@@ -90,4 +104,8 @@ class Controller:
         pass
 
     def on_packet_in(self, msg: PacketIn) -> None:
+        pass
+
+    def on_port_status(self, msg: PortStatus, changed: bool) -> None:
+        """``changed`` is False when the other end already reported the same link."""
         pass
