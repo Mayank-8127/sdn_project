@@ -1,9 +1,11 @@
 """Controller applications, one per recovery strategy."""
 
+from .reactive import ReactiveRouting
 from .static import StaticRouting
 
 APPS = {
     "static": StaticRouting,
+    "reactive": ReactiveRouting,
 }
 
 
