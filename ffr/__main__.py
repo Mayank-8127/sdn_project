@@ -29,8 +29,9 @@ def parse_failure(text: str):
 
 def cmd_run(args) -> int:
     topo = topology.get(args.topo).add_host_per_switch()
-    app_kw = {"ctrl_delay": args.ctrl_delay}
-    sc = Scenario(topo, app=args.app, net_kw={"rule_install_time": args.rule_time}, **app_kw)
+    app_kw = {"ctrl_delay": args.ctrl_delay, "compute_time": args.compute_time}
+    net_kw = {"rule_install_time": args.rule_time, "los_delay": args.los_delay}
+    sc = Scenario(topo, app=args.app, net_kw=net_kw, **app_kw)
     hosts = sorted(topo.hosts)
     if args.flows == "all":
         sc.all_pairs(rate=args.rate, start=args.start, stop=args.stop)
@@ -45,6 +46,8 @@ def cmd_run(args) -> int:
     res = sc.run()
     print(res.summary())
     if args.verbose:
+        for t, text in sc.ctrl.log:
+            print(f"  t={1000 * t:8.2f}ms controller: {text}")
         for st in sc.tm.affected():
             print(f"  flow {st.flow_id:3d} {st.src}->{st.dst}: lost={st.lost} "
                   f"outage={1000 * st.outage():.1f}ms")
@@ -65,8 +68,10 @@ def main(argv=None) -> int:
     r.add_argument("--start", type=float, default=0.1)
     r.add_argument("--stop", type=float, default=0.6)
     r.add_argument("--fail", action="append", help="A-B@t or A-B@t1:t2 (repeatable)")
-    r.add_argument("--ctrl-delay", type=float, default=0.005)
-    r.add_argument("--rule-time", type=float, default=0.001)
+    r.add_argument("--ctrl-delay", type=float, default=0.005, help="one-way controller delay (s)")
+    r.add_argument("--rule-time", type=float, default=0.001, help="per-rule install time (s)")
+    r.add_argument("--compute-time", type=float, default=0.005, help="controller compute time (s)")
+    r.add_argument("--los-delay", type=float, default=0.001, help="loss-of-signal detection (s)")
     r.add_argument("--seed", type=int, default=1)
     r.add_argument("--tables", nargs="*", help="print the flow tables of these switches")
     r.add_argument("-v", "--verbose", action="store_true")
