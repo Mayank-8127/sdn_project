@@ -18,3 +18,4 @@ uv venv && uv pip install -e '.[dev]'
 | Tag | Adds |
 |-----|------|
 | v0.1 | emulator + static shortest-path controller (no recovery) |
+| v0.2 | PORT_STATUS + reactive restoration by the controller |
