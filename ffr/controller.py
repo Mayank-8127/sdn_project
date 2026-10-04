@@ -18,7 +18,8 @@ Concrete behaviours ("apps") subclass :class:`Controller` and override the
 
 from __future__ import annotations
 
-from .openflow import FlowMod, Match, PacketIn, PacketOut, PortStatus
+from .openflow import (FAST_FAILOVER, Bucket, FlowMod, GroupMod, Match, PacketIn,
+                       PacketOut, PortStatus)
 from .routing import Edge, Graph, edge
 
 
@@ -89,6 +90,13 @@ class Controller:
 
     def remove(self, switch: str, match: Match | None = None, cookie: int = 0) -> None:
         self.send(switch, FlowMod("delete", match, (), 0, cookie))
+
+    def install_group(self, switch: str, gid: int, buckets: list[Bucket],
+                      type: str = FAST_FAILOVER) -> None:
+        self.send(switch, GroupMod("add", gid, type, tuple(buckets)))
+
+    def remove_group(self, switch: str, gid: int) -> None:
+        self.send(switch, GroupMod("delete", gid))
 
     def packet_out(self, switch: str, pkt, port: int) -> None:
         self.send(switch, PacketOut(pkt, port))
