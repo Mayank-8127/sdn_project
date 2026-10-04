@@ -14,8 +14,10 @@ from __future__ import annotations
 
 from typing import Callable
 
-from .openflow import (FlowEntry, FlowMod, FlowTable, Output, PacketIn,
-                       PacketOut, PortStatus, PopTag, SetTag, ToController, Drop)
+from .openflow import (ALL, FAST_FAILOVER, INDIRECT, Bucket, Drop, FlowEntry,
+                       FlowMod, FlowTable, Group, GroupEntry, GroupMod, Output,
+                       PacketIn, PacketOut, PopTag, PortStatus, SetTag,
+                       ToController)
 from .packet import Packet
 from .sim import Simulator
 from .topology import LinkSpec, Topology
@@ -137,12 +139,13 @@ class Switch:
         self.name = name
         self.ports: dict[int, Port] = {}
         self.table = FlowTable()
+        self.groups: dict[int, GroupEntry] = {}
         self.controller = None  # set by Controller.attach
         self.alive = True
         self.rule_install_time = rule_install_time
         self._busy_until = 0.0
         self.stats = {"rx": 0, "tx": 0, "miss": 0, "ttl": 0, "dead": 0, "no_port": 0,
-                      "rules_installed": 0}
+                      "rules_installed": 0, "group_drop": 0}
 
     # ------------------------------------------------------------ data plane
     def receive(self, pkt: Packet, in_port: int) -> None:
@@ -177,10 +180,39 @@ class Switch:
             elif isinstance(act, ToController):
                 if self.controller is not None:
                     self.controller.from_switch(PacketIn(self.name, in_port, pkt.copy()))
+            elif isinstance(act, Group):
+                self.execute_group(pkt, act.group_id, in_port)
             elif isinstance(act, Drop):
                 return
             else:
                 raise TypeError(f"unknown action {act!r}")
+
+    def is_live(self, watch) -> bool:
+        """Is a watched port alive (from this switch's point of view)?"""
+        port = self.ports.get(watch)
+        return port is not None and port.live
+
+    def execute_group(self, pkt: Packet, gid: int, in_port: int | None) -> None:
+        group = self.groups.get(gid)
+        if group is None:
+            self.stats["group_drop"] += 1
+            return
+        if group.type == FAST_FAILOVER:
+            for b in group.buckets:
+                if b.watch_port is None or self.is_live(b.watch_port):
+                    b.packets += 1
+                    self.execute(pkt, b.actions, in_port)
+                    return
+            self.stats["group_drop"] += 1  # no live bucket
+        elif group.type == ALL:
+            for b in group.buckets:
+                b.packets += 1
+                self.execute(pkt.copy(), b.actions, in_port)
+        elif group.type == INDIRECT:
+            group.buckets[0].packets += 1
+            self.execute(pkt, group.buckets[0].actions, in_port)
+        else:
+            raise ValueError(f"unknown group type {group.type}")
 
     def output(self, pkt: Packet, port_no: int) -> None:
         port = self.ports.get(port_no)
@@ -216,6 +248,15 @@ class Switch:
                                   priority=None)
             else:
                 raise ValueError(msg.command)
+        elif isinstance(msg, GroupMod):
+            if msg.command == "add":
+                self.groups[msg.group_id] = GroupEntry(
+                    msg.group_id, msg.type,
+                    [Bucket(tuple(b.actions), b.watch_port) for b in msg.buckets])
+            elif msg.command == "delete":
+                self.groups.pop(msg.group_id, None)
+            else:
+                raise ValueError(msg.command)
         else:
             raise TypeError(f"unknown message {msg!r}")
 
@@ -235,7 +276,9 @@ class Switch:
         return None
 
     def dump_table(self) -> str:
-        return "\n".join(f"{self.name}: {e}" for e in self.table)
+        lines = [f"{self.name}: {e}" for e in self.table]
+        lines += [f"{self.name}: {g}" for _, g in sorted(self.groups.items())]
+        return "\n".join(lines)
 
     def __repr__(self) -> str:
         return f"Switch({self.name})"

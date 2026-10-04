@@ -89,6 +89,45 @@ class PopTag:
     """Remove the label."""
 
 
+@dataclass(frozen=True)
+class Group:
+    """Hand the packet to a group-table entry (see :class:`GroupEntry`)."""
+    group_id: int
+
+
+# ------------------------------------------------------------------ groups
+ALL = "all"                      # run every bucket (multicast)
+INDIRECT = "indirect"            # exactly one bucket (shared next hop)
+FAST_FAILOVER = "fast_failover"  # first bucket whose watch port is live
+
+
+@dataclass
+class Bucket:
+    """One alternative inside a group: an action list (+ the port it watches)."""
+    actions: tuple
+    watch_port: int | str | None = None
+    packets: int = 0
+
+
+@dataclass
+class GroupEntry:
+    """A group-table entry.
+
+    For ``FAST_FAILOVER`` the switch walks the buckets in order and executes
+    the first one whose ``watch_port`` is live. That choice is made *per
+    packet, inside the switch*, so traffic moves to the backup bucket the
+    moment the switch notices the primary port is dead: no controller needed.
+    """
+    group_id: int
+    type: str
+    buckets: list[Bucket]
+
+    def __str__(self) -> str:
+        bs = " | ".join(f"watch={b.watch_port}: {', '.join(map(repr, b.actions))} (pkts={b.packets})"
+                        for b in self.buckets)
+        return f"group {self.group_id} [{self.type}] {bs}"
+
+
 # ------------------------------------------------------------ flow entries
 _order = itertools.count()
 
@@ -181,6 +220,15 @@ class FlowMod:
     actions: tuple = ()
     priority: int = 100
     cookie: int = 0
+
+
+@dataclass
+class GroupMod:
+    """Controller -> switch: add/modify/delete a group-table entry."""
+    command: str  # "add" (replaces if present) | "delete"
+    group_id: int
+    type: str = FAST_FAILOVER
+    buckets: tuple = ()
 
 
 @dataclass
