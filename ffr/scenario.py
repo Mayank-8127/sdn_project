@@ -31,13 +31,15 @@ class Result:
     mean_outage: float
     ctrl_msgs: int
     flow_entries: int
+    group_entries: int
     events: int
 
     def summary(self) -> str:
         return (f"[{self.app}] flows={self.flows} sent={self.sent} lost={self.lost} "
                 f"({100 * self.lost / max(1, self.sent):.2f}%) affected_flows={self.affected} "
                 f"max_outage={_ms(self.max_outage)} mean_outage={_ms(self.mean_outage)} "
-                f"ctrl_msgs={self.ctrl_msgs} flow_entries={self.flow_entries}")
+                f"ctrl_msgs={self.ctrl_msgs} flow_entries={self.flow_entries} "
+                f"groups={self.group_entries}")
 
 
 def _ms(x: float) -> str:
@@ -94,5 +96,6 @@ class Scenario:
             (float("inf") if outages else 0.0),
             ctrl_msgs=self.ctrl.msgs_sent,
             flow_entries=sum(len(s.table) for s in self.net.switches.values()),
+            group_entries=sum(len(s.groups) for s in self.net.switches.values()),
             events=self.sim.events_processed,
         )
