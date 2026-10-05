@@ -19,3 +19,4 @@ uv venv && uv pip install -e '.[dev]'
 |-----|------|
 | v0.1 | emulator + static shortest-path controller (no recovery) |
 | v0.2 | PORT_STATUS + reactive restoration by the controller |
+| v0.3 | fast-failover groups + tagged detours (frr-link, frr-node) |
