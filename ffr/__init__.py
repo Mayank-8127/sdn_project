@@ -5,4 +5,4 @@ plus controller applications implementing different failure-recovery
 strategies.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
