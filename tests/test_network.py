@@ -86,3 +86,28 @@ def test_ttl_stops_forwarding_loops():
     net.sim.run()
     assert f.received == 0
     assert sum(s.stats["ttl"] for s in net.switches.values()) == 1
+
+
+def test_silent_failure_drops_but_keeps_signal():
+    net = wire_linear3()
+    tm = TrafficManager(net)
+    f = tm.add_flow("h1", "h3", rate=1000, start=0.0, stop=0.1)
+    net.schedule_link_failure(0.05, "s2", "s3", restore_at=0.07, silent=True)
+    net.sim.run(until=0.06)
+    link = net.link("s2", "s3")
+    assert link.up and not link.working
+    port = net.switches["s2"].ports[net.switches["s2"].port_to("s3")]
+    assert port.live  # loss of signal cannot see a gray failure
+    net.sim.run()
+    assert 18 <= f.lost <= 22 and link.working
+
+
+def test_node_failure_kills_switch_and_links():
+    net = wire_linear3()
+    tm = TrafficManager(net)
+    f = tm.add_flow("h1", "h3", rate=1000, start=0.0, stop=0.1)
+    net.sim.at(0.05, net.fail_node, "s2")
+    net.sim.run()
+    assert not net.switches["s2"].alive
+    assert not net.link("s1", "s2").up and not net.link("s2", "s3").up
+    assert f.outage() == float("inf")

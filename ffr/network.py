@@ -36,7 +36,8 @@ class Link:
         self.delay = delay
         self.capacity = capacity
         self.spec = spec
-        self.up = True
+        self.up = True        # physical signal present (what loss-of-signal sees)
+        self.silent = False   # gray failure: signal present but frames dropped
         # Incremented on every failure. A packet that left before a failure
         # and would arrive after it is lost ("in flight" on the cut fibre).
         self.epoch = 0
@@ -56,30 +57,46 @@ class Link:
             return self.a, self.a_port
         raise ValueError(f"{node.name} is not on link {self.name}")
 
+    @property
+    def working(self) -> bool:
+        return self.up and not self.silent
+
     def transmit(self, sender, pkt: Packet) -> None:
-        if not self.up:
+        if not self.working:
             self.dropped += 1
             return
         node, port = self.other(sender)
         self.sim.schedule(self.delay, self._arrive, node, port, pkt, self.epoch)
 
     def _arrive(self, node, port: int, pkt: Packet, epoch: int) -> None:
-        if epoch != self.epoch or not self.up:
+        if epoch != self.epoch or not self.working:
             self.dropped += 1
             return
         self.delivered += 1
         node.receive(pkt, port)
 
     # -- failures --------------------------------------------------------
-    def fail(self) -> None:
-        if self.up:
+    def fail(self, silent: bool = False) -> None:
+        """Break the link.
+
+        ``silent=False``: a cut; the signal disappears, so hardware notices.
+        ``silent=True``: a *gray failure*; the link looks fine to the
+        hardware but drops every frame (e.g. a faulty line card, a
+        misconfigured filter). Only active probing can detect it.
+        """
+        if not self.working:
+            return
+        if silent:
+            self.silent = True
+        else:
             self.up = False
-            self.epoch += 1
-            self._notify()
+        self.epoch += 1
+        self._notify()
 
     def restore(self) -> None:
-        if not self.up:
+        if not self.working:
             self.up = True
+            self.silent = False
             self._notify()
 
     def _notify(self) -> None:
@@ -87,7 +104,8 @@ class Link:
             cb(self)
 
     def __repr__(self) -> str:
-        return f"Link({self.name}, {'up' if self.up else 'DOWN'})"
+        state = "up" if self.working else ("SILENT" if self.up else "DOWN")
+        return f"Link({self.name}, {state})"
 
 
 class Port:
@@ -340,13 +358,25 @@ class Network:
             raise KeyError(f"no link {a}-{b}") from None
 
     # -- failure injection (used by experiments) ---------------------------
-    def fail_link(self, a: str, b: str) -> None:
-        self.link(a, b).fail()
+    def fail_link(self, a: str, b: str, silent: bool = False) -> None:
+        self.link(a, b).fail(silent)
 
     def restore_link(self, a: str, b: str) -> None:
         self.link(a, b).restore()
 
-    def schedule_link_failure(self, t: float, a: str, b: str, restore_at: float | None = None):
-        self.sim.at(t, self.fail_link, a, b)
+    def fail_node(self, name: str) -> None:
+        """Crash a switch: it stops forwarding and its links go dark.
+
+        Neighbours see loss of signal on the links towards it. (Restarting a
+        crashed switch is not modelled: it would come back with empty tables.)
+        """
+        sw = self.switches[name]
+        sw.alive = False
+        for port in sw.ports.values():
+            port.link.fail()
+
+    def schedule_link_failure(self, t: float, a: str, b: str, restore_at: float | None = None,
+                              silent: bool = False):
+        self.sim.at(t, self.fail_link, a, b, silent)
         if restore_at is not None:
             self.sim.at(restore_at, self.restore_link, a, b)
