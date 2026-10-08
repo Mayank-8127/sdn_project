@@ -12,7 +12,6 @@ def ring_scenario(**kw):
 
 def test_reactive_recovers_and_outage_matches_model():
     sc, f = ring_scenario(ctrl_delay=0.005, compute_time=0.005)
-    sc.net.los_delay = 0.001
     sc.fail_link(0.3, "s1", "s2")
     res = sc.run()
     assert f.received > 0 and f.outage() != float("inf")

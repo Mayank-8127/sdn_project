@@ -18,6 +18,7 @@ from .openflow import (ALL, FAST_FAILOVER, INDIRECT, Bucket, Drop, FlowEntry,
                        FlowMod, FlowTable, Group, GroupEntry, GroupMod, Output,
                        PacketIn, PacketOut, PopTag, PortStatus, SetTag,
                        ToController)
+from .detection import make_detectors
 from .packet import Packet
 from .sim import Simulator
 from .topology import LinkSpec, Topology
@@ -164,11 +165,18 @@ class Switch:
         self._busy_until = 0.0
         self.stats = {"rx": 0, "tx": 0, "miss": 0, "ttl": 0, "dead": 0, "no_port": 0,
                       "rules_installed": 0, "group_drop": 0}
+        # Local agents handling control packets addressed to the switch itself
+        # (e.g. BFD hellos, LLDP probes), by packet kind.
+        self.agents: dict[str, Callable[[Packet, int], None]] = {}
 
     # ------------------------------------------------------------ data plane
     def receive(self, pkt: Packet, in_port: int) -> None:
         if not self.alive:
             self.stats["dead"] += 1
+            return
+        agent = self.agents.get(pkt.kind)
+        if agent is not None:
+            agent(pkt, in_port)
             return
         self.stats["rx"] += 1
         pkt.ttl -= 1
@@ -306,7 +314,9 @@ class Network:
     """All live objects for one topology."""
 
     def __init__(self, topo: Topology, sim: Simulator | None = None,
-                 rule_install_time: float = 0.001, los_delay: float = 0.001):
+                 rule_install_time: float = 0.001, detection: str = "los",
+                 los_delay: float = 0.001, bfd_interval: float = 0.0033, bfd_mult: int = 3,
+                 seed: int = 0):
         self.topo = topo
         self.sim = sim or Simulator()
         self.switches: dict[str, Switch] = {
@@ -314,7 +324,6 @@ class Network:
         self.hosts: dict[str, Host] = {}
         self.links: dict[frozenset, Link] = {}
         self.host_links: dict[str, Link] = {}
-        self.los_delay = los_delay
 
         for spec in topo.links:
             a, b = self.switches[spec.a], self.switches[spec.b]
@@ -323,7 +332,6 @@ class Network:
             a.ports[pa] = Port(pa, link, b.name)
             b.ports[pb] = Port(pb, link, a.name)
             self.links[spec.key] = link
-            link.listeners.append(self._loss_of_signal)
 
         for hname, sname in topo.hosts.items():
             h, s = Host(self.sim, hname), self.switches[sname]
@@ -334,18 +342,17 @@ class Network:
             self.hosts[hname] = h
             self.host_links[hname] = link
 
-    def _loss_of_signal(self, link: Link) -> None:
-        """Physical-layer detection: both ends notice ``los_delay`` later.
+        # Failure detection running in the switches (see detection.py).
+        self.detectors = make_detectors(self, detection, los_delay, bfd_interval, bfd_mult, seed)
+        for d in self.detectors:
+            self.sim.at(0.0, d.start)
 
-        This models the transceiver noticing that light/electrical signal
-        disappeared (or came back).
-        """
-        for sw, port in ((link.a, link.a_port), (link.b, link.b_port)):
-            self.sim.schedule(self.los_delay, self._los_update, sw, port, link)
+    def detector(self, name: str):
+        return next((d for d in self.detectors if d.name == name), None)
 
-    @staticmethod
-    def _los_update(sw: "Switch", port: int, link: Link) -> None:
-        sw.set_port_live(port, link.up)  # read the state *now* (it may have flapped back)
+    @property
+    def probe_packets(self) -> int:
+        return sum(d.overhead_packets for d in self.detectors)
 
     @staticmethod
     def _next_port(sw: Switch) -> int:
