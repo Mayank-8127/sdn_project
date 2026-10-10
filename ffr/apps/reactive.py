@@ -35,9 +35,9 @@ class ReactiveRouting(StaticRouting):
     def install_all_routes(self) -> None:
         self.reroute()
 
-    def on_port_status(self, msg, changed: bool) -> None:
-        if not changed or self._recompute_pending:
-            return  # duplicate report, or a recomputation is already queued
+    def on_link_change(self, e, live: bool) -> None:
+        if self._recompute_pending:
+            return  # a recomputation is already queued; it will see this change
         self._recompute_pending = True
         self.sim.schedule(self.compute_time, self.reroute)
 

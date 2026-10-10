@@ -10,15 +10,15 @@ def test_loss_of_signal_reports_both_ends_to_controller():
     ctrl = Controller(net, ctrl_delay=0.005)
     net.schedule_link_failure(0.1, "s1", "s2", restore_at=0.2)
     seen = []
-    ctrl.on_port_status = lambda msg, changed: seen.append((round(net.sim.now, 6), msg.switch, msg.live, changed))
+    ctrl.note = lambda text: seen.append((round(net.sim.now, 6), text))
     net.sim.run()
     port = net.switches["s1"].ports[net.switches["s1"].port_to("s2")]
     assert port.live
-    assert seen == [
-        (0.107, "s1", False, True),   # 0.1 failure + 2 ms LOS + 5 ms channel
-        (0.107, "s2", False, False),  # duplicate report from the other end
-        (0.207, "s1", True, True),
-        (0.207, "s2", True, False),
+    assert seen == [  # 0.1 failure + 2 ms LOS + 5 ms channel
+        (0.107, "port_status s1:1->s2 DOWN"),
+        (0.107, "port_status s2:1->s1 DOWN (dup)"),  # the other end reports too
+        (0.207, "port_status s1:1->s2 UP"),
+        (0.207, "port_status s2:1->s1 UP (dup)"),
     ]
     assert ctrl.down_links == set()
 
