@@ -26,20 +26,23 @@ class Result:
     sent: int
     lost: int
     affected: int
+    broken: int  # flows that never recovered
     flows: int
     max_outage: float
     mean_outage: float
     ctrl_msgs: int
     flow_entries: int
     group_entries: int
+    probe_pkts: int
     events: int
 
     def summary(self) -> str:
         return (f"[{self.app}] flows={self.flows} sent={self.sent} lost={self.lost} "
                 f"({100 * self.lost / max(1, self.sent):.2f}%) affected_flows={self.affected} "
-                f"max_outage={_ms(self.max_outage)} mean_outage={_ms(self.mean_outage)} "
+                f"never_recovered={self.broken} "
+                f"max_outage={_ms(self.max_outage)} mean_outage(recovered)={_ms(self.mean_outage)} "
                 f"ctrl_msgs={self.ctrl_msgs} flow_entries={self.flow_entries} "
-                f"groups={self.group_entries}")
+                f"groups={self.group_entries} probes={self.probe_pkts}")
 
 
 def _ms(x: float) -> str:
@@ -71,9 +74,16 @@ class Scenario:
         if self.first_failure is None or t < self.first_failure:
             self.first_failure = t
 
-    def fail_link(self, t: float, a: str, b: str, restore_at: float | None = None) -> None:
+    def fail_link(self, t: float, a: str, b: str, restore_at: float | None = None,
+                  silent: bool = False) -> None:
+        """Cut link a-b at ``t`` (``silent=True``: gray failure)."""
         self._mark(t)
-        self.net.schedule_link_failure(t, a, b, restore_at)
+        self.net.schedule_link_failure(t, a, b, restore_at, silent)
+
+    def fail_node(self, t: float, name: str) -> None:
+        """Crash switch ``name`` at ``t``."""
+        self._mark(t)
+        self.sim.at(t, self.net.fail_node, name)
 
     # -- run -------------------------------------------------------------------
     def run(self, until: float | None = None) -> Result:
@@ -90,6 +100,7 @@ class Scenario:
             sent=self.tm.total_sent,
             lost=self.tm.total_lost,
             affected=len(affected),
+            broken=len(outages) - len(finite),
             flows=len(self.tm.flows),
             max_outage=max(outages, default=0.0),
             mean_outage=(sum(finite) / len(finite)) if finite else
@@ -97,5 +108,6 @@ class Scenario:
             ctrl_msgs=self.ctrl.msgs_sent,
             flow_entries=sum(len(s.table) for s in self.net.switches.values()),
             group_entries=sum(len(s.groups) for s in self.net.switches.values()),
+            probe_pkts=self.net.probe_packets + self.ctrl.probe_packets,
             events=self.sim.events_processed,
         )
