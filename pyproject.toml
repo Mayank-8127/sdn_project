@@ -1,6 +1,6 @@
 [project]
 name = "ffr"
-version = "0.3.0"
+version = "0.4.0"
 description = "Failure-Aware Fast Rerouting in SDN: an educational OpenFlow emulator and study"
 requires-python = ">=3.10"
 dependencies = []
