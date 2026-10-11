@@ -29,8 +29,11 @@ def parse_failure(text: str):
 
 def cmd_run(args) -> int:
     topo = topology.get(args.topo).add_host_per_switch()
-    app_kw = {"ctrl_delay": args.ctrl_delay, "compute_time": args.compute_time}
-    net_kw = {"rule_install_time": args.rule_time, "los_delay": args.los_delay}
+    app_kw = {"ctrl_delay": args.ctrl_delay, "compute_time": args.compute_time,
+              "lldp_interval": args.lldp}
+    net_kw = {"rule_install_time": args.rule_time, "los_delay": args.los_delay,
+              "detection": args.detection, "bfd_interval": args.bfd_interval,
+              "bfd_mult": args.bfd_mult}
     sc = Scenario(topo, app=args.app, net_kw=net_kw, **app_kw)
     hosts = sorted(topo.hosts)
     if args.flows == "all":
@@ -43,6 +46,12 @@ def cmd_run(args) -> int:
     for f in args.fail or []:
         a, b, t1, t2 = parse_failure(f)
         sc.fail_link(t1, a, b, t2)
+    for f in args.fail_silent or []:
+        a, b, t1, t2 = parse_failure(f)
+        sc.fail_link(t1, a, b, t2, silent=True)
+    for f in args.fail_node or []:
+        n, _, t = f.partition("@")
+        sc.fail_node(float(t or 0.3), n)
     res = sc.run()
     print(res.summary())
     if args.verbose:
@@ -67,7 +76,13 @@ def main(argv=None) -> int:
     r.add_argument("--rate", type=float, default=1000.0, help="packets/s per flow")
     r.add_argument("--start", type=float, default=0.1)
     r.add_argument("--stop", type=float, default=0.6)
-    r.add_argument("--fail", action="append", help="A-B@t or A-B@t1:t2 (repeatable)")
+    r.add_argument("--fail", action="append", help="cut link: A-B@t or A-B@t1:t2 (repeatable)")
+    r.add_argument("--fail-silent", action="append", help="gray failure: A-B@t[:t2]")
+    r.add_argument("--fail-node", action="append", help="crash switch: NAME@t")
+    r.add_argument("--detection", default="los", help="los | bfd | los+bfd | none")
+    r.add_argument("--bfd-interval", type=float, default=0.0033)
+    r.add_argument("--bfd-mult", type=int, default=3)
+    r.add_argument("--lldp", type=float, default=None, help="controller LLDP probe interval (s)")
     r.add_argument("--ctrl-delay", type=float, default=0.005, help="one-way controller delay (s)")
     r.add_argument("--rule-time", type=float, default=0.001, help="per-rule install time (s)")
     r.add_argument("--compute-time", type=float, default=0.005, help="controller compute time (s)")
