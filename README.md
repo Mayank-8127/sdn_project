@@ -13,6 +13,12 @@ uv venv && uv pip install -e '.[dev]'
 .venv/bin/python -m ffr run --topo abilene --app static --fail DEN-KSC@0.3 -v
 ```
 
+## Documentation
+
+| Doc | Content |
+|-----|---------|
+| [progress/](docs/progress/README.md) | interim progress report and presentation (v0.4) |
+
 ## Versions
 
 | Tag | Adds |
