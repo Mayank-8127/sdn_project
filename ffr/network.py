@@ -168,6 +168,10 @@ class Switch:
         # Local agents handling control packets addressed to the switch itself
         # (e.g. BFD hellos, LLDP probes), by packet kind.
         self.agents: dict[str, Callable[[Packet, int], None]] = {}
+        # Logical ports: liveness signals that are not physical ports, e.g.
+        # an end-to-end path monitored by multi-hop BFD. name -> (live, port)
+        # where ``port`` is the physical first hop that must also be live.
+        self.logical: dict[str, tuple[bool, int]] = {}
 
     # ------------------------------------------------------------ data plane
     def receive(self, pkt: Packet, in_port: int) -> None:
@@ -215,6 +219,9 @@ class Switch:
 
     def is_live(self, watch) -> bool:
         """Is a watched port alive (from this switch's point of view)?"""
+        if isinstance(watch, str):
+            live, phys = self.logical.get(watch, (False, None))
+            return live and self.is_live(phys)
         port = self.ports.get(watch)
         return port is not None and port.live
 
