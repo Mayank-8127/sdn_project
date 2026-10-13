@@ -143,3 +143,100 @@ def path_cost(g: Graph, path: list[str]) -> float:
 
 def path_edges(path: list[str]) -> list[Edge]:
     return [edge(a, b) for a, b in zip(path, path[1:])]
+
+
+# ----------------------------------------------------------------------
+# Disjoint path pairs (for end-to-end path protection)
+# ----------------------------------------------------------------------
+
+def _bellman_ford(arcs: dict[tuple, float], nodes: set, src):
+    dist = {n: float("inf") for n in nodes}
+    prev: dict = {}
+    dist[src] = 0.0
+    order = sorted(arcs.items(), key=lambda kv: (str(kv[0][0]), str(kv[0][1])))
+    for _ in range(len(nodes) - 1):
+        changed = False
+        for (u, v), w in order:
+            if dist[u] + w < dist[v] - 1e-12:
+                dist[v] = dist[u] + w
+                prev[v] = u
+                changed = True
+        if not changed:
+            break
+    return dist, prev
+
+
+def disjoint_paths(g: Graph, src: str, dst: str, node_disjoint: bool = False,
+                   excluded_edges: Iterable[Edge] = ()):
+    """Minimum-total-cost pair of disjoint paths (Bhandari's algorithm).
+
+    Returns ``(p1, p2)`` with ``p1`` the cheaper path, or ``(p, None)`` if no
+    disjoint second path exists (``(None, None)`` if ``dst`` is unreachable).
+
+    Why not "shortest path, then shortest path avoiding it"? That greedy
+    approach can fail even when two disjoint paths exist (the first path may
+    block every alternative). Bhandari's algorithm fixes this: after finding
+    the first path it lets the second path "cancel" edges of the first by
+    walking them backwards at negative cost, then untangles the two.
+
+    ``node_disjoint`` additionally forbids sharing intermediate switches (so
+    the backup survives a switch crash). It uses the standard node-splitting
+    trick: every node v becomes v_in -> v_out.
+    """
+    xe = set(excluded_edges)
+    arcs: dict[tuple, float] = {}
+
+    def IN(n):
+        return (n, "in") if node_disjoint and n not in (src, dst) else (n, "out")
+
+    def OUT(n):
+        return (n, "out")
+
+    for a in g.adj:
+        if node_disjoint and a not in (src, dst):
+            arcs[(IN(a), OUT(a))] = 0.0
+        for b, w in g.adj[a].items():
+            if edge(a, b) not in xe:
+                arcs[(OUT(a), IN(b))] = w
+    nodes = {n for arc in arcs for n in arc} | {OUT(src), IN(dst)}
+    s, t = OUT(src), IN(dst)
+
+    def path_from(prev, end):
+        if end not in prev and end != s:
+            return None
+        p = [end]
+        while p[-1] != s:
+            p.append(prev[p[-1]])
+        return p[::-1]
+
+    dist, prev = _bellman_ford(arcs, nodes, s)
+    p1 = path_from(prev, t) if dist.get(t, float("inf")) < float("inf") else None
+    if p1 is None:
+        return None, None
+    p1_arcs = list(zip(p1, p1[1:]))
+    residual = dict(arcs)
+    for u, v in p1_arcs:
+        residual.pop((u, v), None)
+        residual[(v, u)] = -arcs[(u, v)]
+    dist2, prev2 = _bellman_ford(residual, nodes, s)
+    collapse = lambda p: [n for i, (n, _) in enumerate(p) if i == 0 or n != p[i - 1][0]]
+    if dist2.get(t, float("inf")) == float("inf"):
+        return collapse(p1), None
+    p2 = path_from(prev2, t)
+    used = set(p1_arcs)
+    for u, v in zip(p2, p2[1:]):
+        if (v, u) in used:
+            used.discard((v, u))  # interlacing arcs cancel out
+        else:
+            used.add((u, v))
+    nxt: dict = {}
+    for u, v in sorted(used, key=str):
+        nxt.setdefault(u, []).append(v)
+    paths = []
+    for _ in range(2):
+        p = [s]
+        while p[-1] != t:
+            p.append(nxt[p[-1]].pop())
+        paths.append(collapse(p))
+    paths.sort(key=lambda p: (path_cost(g, p), p))
+    return paths[0], paths[1]
