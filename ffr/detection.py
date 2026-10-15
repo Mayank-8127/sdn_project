@@ -139,3 +139,107 @@ def make_detectors(net, detection, los_delay: float = 0.001, bfd_interval: float
         else:
             raise ValueError(f"unknown detection mechanism {n!r}")
     return out
+
+
+class _PathEnd:
+    __slots__ = ("sw", "path", "logical", "up", "last_rx", "timer")
+
+    def __init__(self, sw, path: list[str], logical: str):
+        self.sw, self.path, self.logical = sw, path, logical
+        self.up = False
+        self.last_rx = 0.0
+        self.timer = None
+
+
+class PathBFD:
+    """Multi-hop BFD (RFC 5883) between the two ends of a path.
+
+    Used by end-to-end path protection: the *ingress* switch cannot see a
+    failure in the middle of a path, so it runs a BFD session with the
+    egress switch *along the primary path*. Each end sends hellos along the
+    path (the egress end along the reversed path). If the ingress stops
+    hearing hellos, the logical port ``path:<id>`` goes dead and the ingress
+    fast-failover group switches to the backup path.
+
+    Modelling note: probes are forwarded hop by hop by a switch agent along
+    the recorded path (equivalent to labelling them with the path's tag), so
+    they cross exactly the links of the protected path.
+    """
+
+    name = "path-bfd"
+
+    def __init__(self, net, interval: float = 0.0033, mult: int = 3, seed: int = 0):
+        self.net = net
+        self.sim = net.sim
+        self.interval = interval
+        self.detect_time = interval * mult
+        self.sent = 0
+        self.detections = 0
+        self.sessions: dict[str, tuple[_PathEnd, _PathEnd]] = {}
+        self._rng = random.Random(seed)
+        for sw in net.switches.values():
+            sw.agents["pbfd"] = self._make_agent(sw)
+
+    @property
+    def overhead_packets(self) -> int:
+        return self.sent
+
+    def add_session(self, path: list[str]) -> str:
+        """Monitor ``path``; returns the logical port name used at the ingress."""
+        logical = "path:" + ">".join(path)
+        if logical in self.sessions:
+            return logical
+        sw = self.net.switches
+        a = _PathEnd(sw[path[0]], list(path), logical)
+        b = _PathEnd(sw[path[-1]], list(reversed(path)), "rpath:" + ">".join(path))
+        self.sessions[logical] = (a, b)
+        for end in (a, b):
+            first_port = end.sw.port_to(end.path[1])
+            # Down until the first hello arrives (like a BFD session in Init).
+            end.sw.logical[end.logical] = (False, first_port)
+            self.sim.schedule(self._rng.uniform(0, self.interval), self._tx, end)
+        return logical
+
+    def _tx(self, end: _PathEnd) -> None:
+        if not end.sw.alive:
+            return
+        self.sent += 1
+        a, b = self.sessions[end.logical if end.logical.startswith("path:")
+                             else end.logical[1:]]
+        receiver = b if end is a else a
+        pkt = Packet(end.sw.name, end.path[-1], kind="pbfd", payload=(receiver, end.path, 0))
+        self._forward(end.sw, pkt)
+        self.sim.schedule(self.interval, self._tx, end)
+
+    def _forward(self, sw, pkt: Packet) -> None:
+        receiver, path, i = pkt.payload
+        port = sw.port_to(path[i + 1])
+        pkt.payload = (receiver, path, i + 1)
+        sw.ports[port].link.transmit(sw, pkt)
+
+    def _make_agent(self, sw):
+        def agent(pkt: Packet, in_port: int) -> None:
+            receiver, path, i = pkt.payload
+            if i < len(path) - 1:
+                self._forward(sw, pkt)  # transit switch: pass it on
+            else:
+                self._rx(receiver)      # reached the far end of the path
+        return agent
+
+    def _rx(self, end: _PathEnd) -> None:
+        end.last_rx = self.sim.now
+        if not end.up:
+            end.up = True
+            end.sw.logical[end.logical] = (True, end.sw.logical[end.logical][1])
+        if end.timer is None:
+            end.timer = self.sim.schedule(self.detect_time, self._check, end)
+
+    def _check(self, end: _PathEnd) -> None:
+        end.timer = None
+        silence = self.sim.now - end.last_rx
+        if silence >= self.detect_time - 1e-12:
+            end.up = False
+            self.detections += 1
+            end.sw.logical[end.logical] = (False, end.sw.logical[end.logical][1])
+        else:
+            end.timer = self.sim.schedule(self.detect_time - silence, self._check, end)
