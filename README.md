@@ -18,6 +18,7 @@ uv venv && uv pip install -e '.[dev]'
 | Doc | Content |
 |-----|---------|
 | [progress/](docs/progress/README.md) | interim progress report and presentation (v0.4) |
+| [results/](docs/results/REPORT.md) | evaluation results, figures and raw data |
 
 ## Versions
 

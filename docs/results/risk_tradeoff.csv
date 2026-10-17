@@ -1,0 +1,17 @@
+topo,lam,mean_path_delay_ms,mean_path_fail_prob_pct
+abilene,0,11.513,16.387
+abilene,0.5,11.529,15.73
+abilene,1,11.529,15.73
+abilene,2,11.682,14.16
+abilene,5,11.682,14.16
+abilene,10,11.927,13.518
+abilene,20,12.944,12.326
+abilene,50,13.148,12.2
+nsfnet,0,4.286,11.799
+nsfnet,0.5,4.286,11.025
+nsfnet,1,4.286,11.025
+nsfnet,2,4.286,11.025
+nsfnet,5,4.308,10.823
+nsfnet,10,4.593,8.989
+nsfnet,20,4.703,8.658
+nsfnet,50,5.143,7.956

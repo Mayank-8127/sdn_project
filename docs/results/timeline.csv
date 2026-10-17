@@ -1,0 +1,7 @@
+app,lost,outage_ms,hops_after
+static,262,inf,5
+reactive,21,21.0,5
+frr-link,5,5.0,6
+frr-node,5,5.0,6
+e2e,29,29.0,5
+fa-frr,5,5.0,5
