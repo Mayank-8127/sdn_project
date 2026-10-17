@@ -31,3 +31,4 @@ uv venv && uv pip install -e '.[dev]'
 | v0.5 | end-to-end path protection (Bhandari disjoint paths, multi-hop BFD) |
 | v0.6 | FA-FRR: risk model, SRLG-disjoint backups, hitless re-optimisation, flap damping |
 | v0.7 | experiment suite, figures, generated report |
+| v0.8 | OS-Ken/Ryu app + Mininet scripts, wire-level tests |
