@@ -18,8 +18,8 @@ Concrete behaviours ("apps") subclass :class:`Controller` and override the
 
 from __future__ import annotations
 
-from .openflow import (FAST_FAILOVER, Bucket, FlowMod, GroupMod, Match, PacketIn,
-                       PacketOut, PortStatus)
+from .openflow import (FAST_FAILOVER, Barrier, BarrierReply, Bucket, FlowMod, GroupMod,
+                       Match, PacketIn, PacketOut, PortStatus)
 from .packet import Packet
 from .routing import Edge, Graph, edge
 
@@ -56,6 +56,8 @@ class Controller:
         self.lldp_mult = lldp_mult
         self.lldp_sent = 0
         self._lldp_seen: dict[Edge, float] = {}
+        self._barriers: dict[int, tuple[set[str], object]] = {}
+        self._xid = 0
         if lldp_interval:
             for sw in net.switches.values():
                 sw.agents["lldp"] = self._lldp_punt(sw)
@@ -85,6 +87,13 @@ class Controller:
                 self._lldp_received(msg)
             else:
                 self.on_packet_in(msg)
+        elif isinstance(msg, BarrierReply):
+            waiting = self._barriers.get(msg.xid)
+            if waiting is not None:
+                waiting[0].discard(msg.switch)
+                if not waiting[0]:
+                    del self._barriers[msg.xid]
+                    waiting[1]()
         elif isinstance(msg, PortStatus):
             if msg.peer not in self.graph.adj:
                 return  # a host-facing port; not part of the switch graph
@@ -154,6 +163,23 @@ class Controller:
 
     def remove_group(self, switch: str, gid: int) -> None:
         self.send(switch, GroupMod("delete", gid))
+
+    def barrier(self, switches, callback) -> None:
+        """Call ``callback`` once all ``switches`` applied everything sent so far.
+
+        This is how a controller orders updates *across* switches, e.g.
+        "install the new detour everywhere, and only then redirect traffic
+        onto it" (make-before-break). Dead switches never answer, so they are
+        skipped.
+        """
+        alive = {s for s in switches if self.net.switches[s].alive}
+        if not alive:
+            self.sim.schedule(0, callback)
+            return
+        self._xid += 1
+        self._barriers[self._xid] = (set(alive), callback)
+        for s in sorted(alive):
+            self.send(s, Barrier(self._xid))
 
     def packet_out(self, switch: str, pkt, port: int) -> None:
         self.send(switch, PacketOut(pkt, port))

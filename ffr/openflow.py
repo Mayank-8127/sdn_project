@@ -232,6 +232,19 @@ class GroupMod:
 
 
 @dataclass
+class Barrier:
+    """Controller -> switch: "reply once everything I sent before is applied"."""
+    xid: int
+
+
+@dataclass
+class BarrierReply:
+    """Switch -> controller: all messages before barrier ``xid`` are applied."""
+    switch: str
+    xid: int
+
+
+@dataclass
 class PacketIn:
     """Switch -> controller: a packet the switch wants the controller to see."""
     switch: str

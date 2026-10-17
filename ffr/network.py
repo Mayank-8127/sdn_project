@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from .openflow import (ALL, FAST_FAILOVER, INDIRECT, Bucket, Drop, FlowEntry,
+from .openflow import (ALL, FAST_FAILOVER, INDIRECT, Barrier, BarrierReply, Bucket, Drop, FlowEntry,
                        FlowMod, FlowTable, Group, GroupEntry, GroupMod, Output,
                        PacketIn, PacketOut, PopTag, PortStatus, SetTag,
                        ToController)
@@ -263,11 +263,20 @@ class Switch:
         if isinstance(msg, PacketOut):
             self.output(msg.packet, msg.port)
             return
+        if isinstance(msg, Barrier):
+            # Answered once every earlier message has been applied.
+            done = max(self.sim.now, self._busy_until)
+            self.sim.at(done, self._barrier_reply, msg.xid)
+            return
         # Table updates are applied one after another, each taking
         # rule_install_time (hardware TCAM updates are slow).
         start = max(self.sim.now, self._busy_until)
         self._busy_until = start + self.rule_install_time
         self.sim.at(self._busy_until, self._apply, msg)
+
+    def _barrier_reply(self, xid: int) -> None:
+        if self.alive and self.controller is not None:
+            self.controller.from_switch(BarrierReply(self.name, xid))
 
     def _apply(self, msg) -> None:
         if not self.alive:
