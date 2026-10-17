@@ -1,7 +1,7 @@
 """Evaluation framework: run the experiment suite and write a report.
 
-    python -m ffr experiment            # everything (a few minutes on 8+ cores)
-    python -m ffr experiment --quick    # reduced sweeps (~1 minute)
+    python -m ffr experiment            # everything (about 3 minutes on 16 cores)
+    python -m ffr experiment --quick    # reduced sweeps (about 30 s)
     python -m ffr experiment srlg flapping --out results/
 
 Outputs ``<out>/<experiment>.csv`` (raw rows), ``<out>/*.png`` (figures) and

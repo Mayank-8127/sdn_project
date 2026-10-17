@@ -6,7 +6,7 @@ We keep only what our switches look at:
 * ``src`` / ``dst``: names of the sending / receiving host (think of them as
   addresses),
 * ``tag``: an extra label the network itself may push onto a packet (like a
-  VLAN id or MPLS label). ``None`` means untagged. Used for detours later.
+  VLAN id or MPLS label). ``None`` means untagged. Detour rules match on it.
 * ``ttl``: time-to-live, decremented at each switch; a packet whose TTL hits
   zero is dropped. This stops packets from looping forever.
 
