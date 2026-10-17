@@ -87,6 +87,7 @@ docs/                    interim progress report, experiment results, project re
 |-----|---------|
 | [progress/](docs/progress/README.md) | interim progress report and presentation (v0.4) |
 | [results/](docs/results/REPORT.md) | evaluation results, figures and raw data |
+| [testbed/](testbed/README.md) | real testbed setup and Mininet results |
 | [report/](docs/report/README.md) | project report (Word/PDF) and presentation (PowerPoint/PDF) |
 
 ## Versions
