@@ -187,6 +187,8 @@ BUILTIN = {
     "linear4": lambda: linear(4),
     "ring6": lambda: ring(6),
     "grid3x3": lambda: grid(3, 3),
+    "grid4x4": lambda: grid(4, 4),
+    "grid5x5": lambda: grid(5, 5),
     "abilene": abilene,
     "nsfnet": nsfnet,
 }
