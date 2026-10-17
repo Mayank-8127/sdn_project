@@ -2,8 +2,8 @@
 
 | File | What it is |
 |------|------------|
-| `FA-FRR_Project_Report.docx` / `.pdf` | project report (34 pages): certificate, declaration, abstract, 8 chapters, references, appendix |
-| `FA-FRR_Presentation.pptx` / `.pdf` | 19-slide presentation |
+| `FA-FRR_Project_Report.docx` / `.pdf` | project report (35 pages): certificate, declaration, abstract, 8 chapters, references, appendix |
+| `FA-FRR_Presentation.pptx` / `.pdf` | 20-slide presentation |
 
 The first page of each lists the team. The guide, department and institute
 fields are left blank; fill them in the `.docx` / `.pptx` files and export to
@@ -19,4 +19,5 @@ python docs/report/build_report.py    # report (.docx + .pdf, table of contents 
 python docs/report/build_slides.py    # slides (.pptx + .pdf)
 ```
 
-The result charts come from `docs/results/` (`python -m ffr experiment`).
+The result charts come from `docs/results/` (`python -m ffr experiment`) and the
+Mininet table from `testbed/results/summary.md` (`testbed/run_experiments.sh`).

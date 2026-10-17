@@ -201,7 +201,7 @@ def agenda(D):
     s = D.slide("Agenda")
     items = ["Motivation and problem statement", "Objectives", "Related work and research gap",
              "System design", "Incremental development", "FA-FRR: the proposed scheme",
-             "Experimental setup", "Results", "Real testbed port", "Conclusion and future work"]
+             "Experimental setup", "Results", "Real testbed and Mininet results", "Conclusion and future work"]
     for i, it in enumerate(items):
         col, row = divmod(i, 5)
         x, y = Inches(0.8 + col * 6.2), Inches(1.9 + row * 0.95)
@@ -280,12 +280,12 @@ def roadmap(D):
     s = D.slide("Built incrementally: basic → advanced", "Implementation")
     D.image(s, FIG / "roadmap.png", Inches(0.5), Inches(1.6), Inches(12.3), Inches(2.4))
     D.table(s, Inches(0.8), Inches(4.2), Inches(11.7), ["Version", "v0.1", "v0.2", "v0.3", "v0.4", "v0.5",
-                                                        "v0.6", "v0.7", "v0.8 / v1.0"],
+                                                        "v0.6", "v0.7", "v0.8 – v1.1"],
             [["Tests passing", "27", "33", "63", "78", "89", "104", "109", "109 + testbed"]],
             size=15, row_h=0.5, highlight_col=6)
     D.text(s, Inches(0.8), Inches(5.5), Inches(11.7), Inches(1.2),
-           "83 git commits in chronological order, one tag per version, and a documentation guide for each "
-           "version. Every tag was re-tested from a clean checkout.", 17, MUTED)
+           "One git tag per version, each with its own tests and documentation; v1.1 validates the "
+           "controller on Mininet with Open vSwitch.", 17, MUTED)
 
 
 def fafrr(D):
@@ -413,20 +413,36 @@ def testbed(D):
     s = D.slide("Real testbed port: OS-Ken / Ryu + Mininet + Open vSwitch", "Implementation")
     D.table(s, Inches(0.6), Inches(1.7), Inches(7.0), ["Emulator", "OpenFlow 1.3"], [
         ["tag", "VLAN push / set_field / pop"], ["fast-failover group", "OFPGT_FF + watch_port"],
+        ["U-turn backup", "OFPP_IN_PORT, per-ingress group"],
         ["re-optimisation", "OFPGC_MODIFY + barriers"], ["old generation", "delete by cookie"],
         ["LOS / BFD", "OVS carrier / OVS BFD"], ["hold-down", "hub.spawn_after"],
-    ], col_w=[2.8, 4.2], size=15, row_h=0.55)
+    ], col_w=[2.8, 4.2], size=15, row_h=0.52)
     D.bullets(s, Inches(8.0), Inches(1.8), Inches(4.9), Inches(3.5), [
         "Same planning modules, unchanged",
         "Every message checked in **OpenFlow 1.3 wire format**",
         "11 fake switches over real **TCP**",
+        "Abilene in **Mininet** with Open vSwitch",
     ], 17)
-    D.callout(s, Inches(8.0), Inches(4.0), Inches(4.9), Inches(1.5),
-              "Initial install: 415 flow adds, 110 group adds.\nAfter DEN–KSC fails: 110 group modifies, "
-              "11 old-detour deletes.", 15)
-    D.text(s, Inches(0.6), Inches(5.9), Inches(12), Inches(0.8),
-           "Note: Mininet needs root, which the development machine did not have. The Mininet script is "
-           "ready to run, but it was not executed here.", 14, MUTED, italic=True)
+    D.callout(s, Inches(8.0), Inches(4.6), Inches(4.9), Inches(1.6),
+              "Found only on real switches: output to the ingress port is dropped (fixed with "
+              "**IN_PORT**), and each link end reports its own port status.", 14)
+
+
+def testbed_results(D):
+    s = D.slide("Mininet results: Abilene, Open vSwitch, 5 runs per scenario", "Results")
+    lines = [l for l in (ROOT / "testbed" / "results" / "summary.md").read_text().splitlines()
+             if l.startswith("|")][2:]
+    rows = []
+    for l in lines:
+        c = [x.strip() for x in l.strip("|").split("|")]
+        rows.append([c[0], c[4], c[5], c[6], c[7]])
+    D.table(s, Inches(0.5), Inches(1.6), Inches(12.3),
+            ["Scenario", "Mean outage", "Worst outage", "Controller told", "Re-optimised in"],
+            rows, col_w=[5.5, 1.7, 1.7, 1.7, 1.7], size=14, row_h=0.55)
+    D.callout(s, Inches(0.5), Inches(5.4), Inches(12.3), Inches(1.2),
+              "Cut: the FF group reroutes before the controller even hears of it. Gray failure: "
+              "**BFD** turns 1.8 s of loss into 40 ms. Duct cut: declaring the SRLG **halves** the "
+              "outage (38 → 20 ms).", 15)
 
 
 def conclusion(D):
@@ -444,7 +460,7 @@ def conclusion(D):
         "Load-aware backups (congestion on detours)",
         "Multi-failure data-plane resilience",
         "Learn risk parameters from real failure logs",
-        "Run on Mininet / hardware switches",
+        "Hardware switches and real BFD timers",
         "Replicated controllers, P4 data planes",
     ], 16, 8)
 
@@ -458,7 +474,7 @@ def thanks(D):
     D.text(s, Inches(0.8), Inches(3.7), Inches(11.7), Inches(0.6), "Questions?", 26,
            RGBColor(0x9E, 0xD8, 0x9E), align=PP_ALIGN.CENTER)
     D.text(s, Inches(0.8), Inches(5.3), Inches(11.7), Inches(0.9),
-           "Code, documentation and results: project git repository (tags v0.1 – v1.0)", 15,
+           "Code, documentation and results: project git repository (tags v0.1 – v1.1)", 15,
            RGBColor(0xD6, 0xDE, 0xEA), align=PP_ALIGN.CENTER)
 
 
@@ -466,7 +482,7 @@ def main():
     D = Deck()
     for f in (title_slide, agenda, gap, objectives, literature, design, roadmap,
               fafrr, fafrr_ideas, reopt, setup, res_timeline, res_single, res_double, res_gray_flap,
-              res_summary, testbed, conclusion, thanks):
+              res_summary, testbed, testbed_results, conclusion, thanks):
         f(D)
     D.prs.core_properties.title = "Failure-Aware Fast Rerouting in SDN"
     D.save()

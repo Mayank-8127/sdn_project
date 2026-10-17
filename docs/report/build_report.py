@@ -437,7 +437,7 @@ def front_matter(R: Report):
         "make-before-break re-optimisation after every failure, and flap damping.", indent=1.0)
     R.p("Everything is built from scratch in Python as a deterministic discrete-event OpenFlow "
         "emulator (about 4,400 lines of code, 109 automated tests), developed incrementally in "
-        "nine tagged versions. FA-FRR is compared with five baselines (no recovery, reactive "
+        "ten tagged versions. FA-FRR is compared with five baselines (no recovery, reactive "
         "restoration, local link and node protection, and end-to-end path protection) in "
         "about 1,000 simulations on the Abilene and NSFNET research backbones under seven "
         "failure models. FA-FRR is the only scheme that is both millisecond-fast (4–7 ms mean "
@@ -445,7 +445,9 @@ def front_matter(R: Report):
         "of sequential double failures, where plain fast reroute survives only 7–33 % and "
         "10–25 % respectively, and it loses 3.3× fewer packets than plain fast reroute on a "
         "flapping link. The same algorithm is also ported to a real OpenFlow 1.3 controller "
-        "(OS-Ken/Ryu) for Mininet and Open vSwitch and verified at the OpenFlow wire level.",
+        "(OS-Ken/Ryu) and validated on Mininet with Open vSwitch, where a link cut costs 14 ms "
+        "of traffic on average and declaring a shared risk group halves the outage of a duct "
+        "cut (38 → 20 ms).",
         indent=1.0)
     R.p("**Keywords:** Software-Defined Networking, OpenFlow, fast reroute, fast-failover group, "
         "failure recovery, BFD, shared risk link group, network resilience.",
@@ -482,8 +484,8 @@ def ch_introduction(R: Report):
         "controller applications, five baselines and FA-FRR; (3) an evaluation suite of "
         "about 1,000 simulations on the Abilene and NSFNET backbones under seven failure "
         "models; and (4) a port of FA-FRR to a real OpenFlow 1.3 controller (OS-Ken/Ryu) for "
-        "Mininet and Open vSwitch. The work was developed incrementally in nine tagged "
-        "versions, each with its own automated tests.", indent=1.0)
+        "Mininet and Open vSwitch, validated on the Abilene topology. The work was developed "
+        "incrementally in ten tagged versions, each with its own automated tests.", indent=1.0)
     R.h2("1.2 Motivation")
     R.p("Controller-driven restoration in SDN needs a control-channel round trip, route "
         "computation and per-rule installation, so recovery takes tens to hundreds of "
@@ -633,10 +635,12 @@ def ch_requirements(R: Report):
     R.table(["Item", "Details"], [
         ["Language", "Python 3.10+ (pure Python core, no compiled dependencies)"],
         ["Libraries", "matplotlib (plots), pytest (testing)"],
-        ["SDN controller framework", "OS-Ken 4.x (maintained fork of Ryu)"],
-        ["Testbed tools", "Mininet, Open vSwitch with OpenFlow 1.3 and BFD"],
-        ["Version control / CI", "git (83 commits, 9 tags), GitHub Actions workflow"],
-        ["Hardware", "any x86-64 PC; experiments run in parallel on all CPU cores"],
+        ["SDN controller framework", "OS-Ken 4.2 (maintained fork of Ryu)"],
+        ["Testbed tools", "Mininet 2.3.1b4, Open vSwitch 4.0 with OpenFlow 1.3 and BFD, "
+                          "Linux 7.2"],
+        ["Version control / CI", "git (one tag per version), GitHub Actions workflow"],
+        ["Hardware", "Intel Core i5-12500H, 16 threads; simulations run in parallel on all "
+                     "cores, Mininet on the same machine"],
     ], "Software and hardware", widths=[4.5, 11.0])
     R.h2("3.4 Metrics")
     R.table(["Metric", "Definition"], [
@@ -787,9 +791,9 @@ on PORT_STATUS up(e):
 def ch_implementation(R: Report):
     R.chapter_heading("Implementation")
     R.h2("5.1 Incremental Development")
-    R.p("The project was developed like a real software project: basic features first, then "
-        "progressively more advanced ones, each version a git tag with its own tests and a "
-        "documentation guide. Figure 5.1 and Table 5.1 summarise the versions.", indent=1.0)
+    R.p("The system was built in versions, from the emulator and a baseline controller up to "
+        "FA-FRR and its validation on Mininet. Each version is a git tag with its own tests "
+        "and documentation. Figure 5.1 and Table 5.1 summarise the versions.", indent=1.0)
     R.figure(FIG / "roadmap.png", "Version roadmap.", 15.5)
     R.table(["Tag", "Added", "Tests"], [
         ["v0.1", "discrete-event emulator, OpenFlow flow tables, static shortest-path controller", "27"],
@@ -801,6 +805,8 @@ def ch_implementation(R: Report):
         ["v0.7", "evaluation suite (10 experiments), plots, generated report", "109"],
         ["v0.8", "OS-Ken/Ryu application, Mininet script, wire-level tests", "109 + testbed"],
         ["v1.0", "final documentation, continuous integration", "109 + testbed"],
+        ["v1.1", "Mininet/Open vSwitch validation, IN_PORT U-turn groups, per-end port state",
+         "109 + testbed"],
     ], "Versions and automated tests passing at each tag", widths=[1.5, 11.5, 2.5])
     R.h2("5.2 Key Implementation Details")
     R.bullets([
@@ -835,8 +841,8 @@ s1: group 5 [fast_failover] watch=2: Output(port=2) | watch=1: SetTag(tag=5), Ou
         "acceptance criteria of each version, for example that FRR recovery time is about the "
         "detection time, that FA-FRR survives an SRLG double failure that plain FRR does not, "
         "and that re-optimisation is hitless (FA-FRR loses exactly as many packets as plain "
-        "FRR). The full suite was re-run from a clean checkout of every tag, and a GitHub "
-        "Actions workflow runs the tests, the quick experiments and the testbed tests.",
+        "FRR). A GitHub Actions workflow runs the tests, the quick experiments and the "
+        "testbed tests on every push.",
         indent=1.0)
     R.h2("5.4 Real Testbed Port (OS-Ken/Ryu, Mininet, Open vSwitch)")
     R.p("To show that FA-FRR is not just a simulation artefact, the same planning modules "
@@ -854,16 +860,24 @@ s1: group 5 [fast_failover] watch=2: Output(port=2) | watch=1: SetTag(tag=5), Ou
         ["LOS / BFD", "OVS carrier state / ovs-vsctl set interface … bfd:enable=true"],
         ["hold-down timer", "hub.spawn_after"],
     ], "Mapping of emulator abstractions to OpenFlow 1.3", widths=[5.0, 10.5], size=9.5)
-    R.p("The development machine had no root access, so Mininet itself could not be run. The "
-        "controller was verified in two other ways. First, unit tests drive it with fake "
+    R.p("The controller was verified at three levels. First, unit tests drive it with fake "
         "datapaths and serialise every message it emits to OpenFlow 1.3 wire format, so "
         "malformed matches, actions or groups would fail. Second, eleven fake switches open "
         "real TCP connections to the running controller, complete the OpenFlow handshake, "
-        "answer barriers and report a link failure. The controller performed the initial "
-        "installation (415 flow additions, 110 group additions) and, after the DEN–KSC "
-        "failure, the re-optimisation (110 group modifications and 11 deletions of the old "
-        "detour generation). A ready-to-run Mininet script is provided for a machine with "
-        "root access.", indent=1.0)
+        "answer barriers and report a link failure: the controller performs the initial "
+        "installation (695 flow additions, 390 group additions) and, after the DEN–KSC "
+        "failure, the re-optimisation (390 group modifications, 11 deletions of the old "
+        "detour generation). Third, the Abilene topology runs in Mininet with Open vSwitch "
+        "(Section 7.10).", indent=1.0)
+    R.p("Two behaviours of real switches are not modelled by the emulator and were handled in "
+        "the port. OpenFlow drops a packet output to the port it arrived on, so a backup that "
+        "turns back towards the previous switch must use the reserved port OFPP_IN_PORT; the "
+        "controller therefore installs, per switch and destination, one fast-failover group "
+        "per ingress neighbour, selected by an in_port rule, besides the default group. "
+        "Second, each end of a link sends its own PORT_STATUS, and the end disabled "
+        "administratively reports OFPPC_PORT_DOWN with a live state; the controller keeps "
+        "the state of each end and treats a link as up only when both ends are up.",
+        indent=1.0)
 
 
 def ch_setup(R: Report):
@@ -903,6 +917,13 @@ def _md_section_table(section):
     lines = [l for l in text.split("\n## ", 1)[0].splitlines() if l.startswith("|")]
     header = [c.strip() for c in lines[0].strip("|").split("|")]
     return [dict(zip(header, (c.strip() for c in l.strip("|").split("|")))) for l in lines[2:]]
+
+
+def _testbed_rows():
+    """Rows of testbed/results/summary.md, written by testbed/summarise.py."""
+    lines = [l for l in (ROOT / "testbed" / "results" / "summary.md").read_text().splitlines()
+             if l.startswith("|")]
+    return [[c.strip() for c in l.strip("|").split("|")] for l in lines[2:]]
 
 
 def _res_table(R, section, apps, caption, topos=("abilene", "nsfnet")):
@@ -1024,7 +1045,32 @@ def ch_results(R: Report):
         "curve.", indent=1.0)
     R.figure(RES / "risk_tradeoff.png", "Mean path latency versus path failure probability "
              "as λ grows.", 15.0)
-    R.h2("7.10 Summary of Results")
+    R.h2("7.10 Validation on Mininet and Open vSwitch")
+    R.p("The OS-Ken controller ran against eleven Open vSwitch switches in Mininet on the "
+        "Abilene topology, with link delays from the fibre distances. Hosts whose shortest "
+        "path crosses a failed link ping each other every 10 ms; the longest run of lost "
+        "probes gives the outage to the nearest 10 ms. A failure lasts 2 s and each scenario "
+        "was run five times (Table 7.7). A gray failure is made with a tc filter that drops "
+        "every received frame while the interfaces stay up.", indent=1.0)
+    R.table(["Scenario", "Runs", "Pairs", "Lost / pair", "Mean outage", "Worst outage",
+             "Controller notified", "Re-optimisation"], _testbed_rows(),
+            "FA-FRR on Mininet with Open vSwitch (Abilene, 2 s failures, 10 ms probes)",
+            widths=[4.6, 1.1, 1.2, 1.5, 1.7, 1.7, 2.0, 2.0], size=8.5)
+    R.p("On a link cut, Open vSwitch sees the carrier drop and the fast-failover group moves "
+        "traffic to the backup without the controller: the mean outage is 14 ms, one or two "
+        "probes, most of it packets in flight on the cut link. The controller hears of the "
+        "cut about 8 ms after it happens and has the next generation of backups active about "
+        "30 ms later, after traffic has already moved. A gray failure without BFD is never "
+        "detected and traffic is lost for the whole failure; with OVS BFD (10 ms × 3) the "
+        "outage drops to 40 ms, matching the detection-dominated behaviour of Section 7.4. "
+        "Open vSwitch does not report BFD-detected failures as PORT_STATUS, so the data plane "
+        "reroutes but the controller does not re-optimise. When both links of the Abilene "
+        "duct fail at once, declaring the shared risk group halves the mean outage (38 to "
+        "20 ms) and the worst outage (60 to 30 ms), because the backups no longer use the "
+        "other link of the duct. On this testbed the controller is local, so flows on a dead "
+        "backup are rescued by re-optimisation within tens of milliseconds; over a WAN control "
+        "channel the difference would be larger, as the emulator results show.", indent=1.0)
+    R.h2("7.11 Summary of Results")
     R.table(["Failure model (Abilene / NSFNET)", "reactive", "frr-node", "e2e", "fa-frr"], [
         ["single link: mean outage (ms)", "23.2 / 21.2", "5.9 / 4.0", "18.7 / 10.4", "**5.9 / 4.0**"],
         ["single link: stretch", "1.03 / 1.00", "1.17 / 1.19", "1.07 / 1.02", "**1.03 / 1.00**"],
@@ -1067,8 +1113,10 @@ def ch_conclusion(R: Report):
         "Two failures within the re-optimisation window (about 70 ms on Abilene) rely on the "
         "SRLG model being correct.",
         "The risk-model parameters (λ, half-life, penalty) were chosen by hand.",
-        "The Mininet experiment was not executed in the development environment; the "
-        "controller was verified at the OpenFlow wire level and over TCP with fake switches.",
+        "The Mininet runs use a single machine: link delays come from tc netem and the "
+        "controller is local, so control-channel latency is far below that of a WAN.",
+        "Open vSwitch does not report BFD-detected failures to the controller, so after a "
+        "gray failure the network is not re-protected until the carrier changes.",
         "A single, always-reachable controller is assumed.",
     ])
     R.h2("8.3 Future Work")
@@ -1077,8 +1125,9 @@ def ch_conclusion(R: Report):
         "Multi-failure data-plane resilience in the spirit of Borokhovich et al. [11] for "
         "failures arriving faster than re-optimisation.",
         "Fitting the risk model to real failure logs, or learning it online.",
-        "Running the Mininet/Open vSwitch experiment and hardware switches to measure real "
-        "rule-installation and BFD behaviour.",
+        "Hardware OpenFlow switches, to measure real rule-installation times and hardware "
+        "BFD, and a controller that polls BFD state so gray failures also trigger "
+        "re-optimisation.",
         "Distributed or replicated controllers and P4 programmable data planes.",
     ])
 
@@ -1166,9 +1215,12 @@ python -m venv .venv && .venv/bin/pip install -e '.[dev,plots]'
 # the whole evaluation (about 3 min on 16 cores; --quick about 30 s)
 .venv/bin/python -m ffr experiment --out results
 
-# real testbed (needs root): terminal 1 and terminal 2
-sudo python3 testbed/mininet_ffr.py --topo abilene --fail DEN-KSC
-FFR_TOPO=/tmp/ffr_topo.json python3 testbed/run_controller.py
+# real testbed (needs root, Mininet and Open vSwitch): one scenario in two terminals
+sudo .venv-testbed/bin/python testbed/mininet_ffr.py --topo abilene --fail DEN-KSC
+FFR_TOPO=/tmp/ffr_topo.json .venv-testbed/bin/python testbed/run_controller.py
+
+# all Mininet scenarios, five runs each (logs and summary in testbed/results/)
+testbed/run_experiments.sh .venv-testbed/bin/python 5
 """, size=8.5)
     R.p("Example output for the SRLG double failure under FA-FRR:", indent=1.0)
     R.code("[fa-frr] flows=110 sent=66000 lost=413 (0.63%) affected_flows=50 never_recovered=0\n"
