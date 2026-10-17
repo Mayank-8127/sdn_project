@@ -84,6 +84,17 @@ def cmd_run(args) -> int:
     return 0
 
 
+def cmd_experiment(args) -> int:
+    from .experiments import run_suite
+    from .experiments.suite import ALL
+    unknown = [n for n in args.names if n not in ALL]
+    if unknown:
+        print(f"unknown experiments {unknown}; choose from {list(ALL)}")
+        return 2
+    run_suite(args.names or None, args.quick, args.out, args.workers)
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="ffr", description="Failure-aware fast rerouting in SDN")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -115,6 +126,13 @@ def main(argv=None) -> int:
     r.add_argument("--tables", nargs="*", help="print the flow tables of these switches")
     r.add_argument("-v", "--verbose", action="store_true")
     r.set_defaults(fn=cmd_run)
+
+    e = sub.add_parser("experiment", help="run the evaluation suite and write a report")
+    e.add_argument("names", nargs="*", help="experiments to run (default: all)")
+    e.add_argument("--quick", action="store_true", help="reduced sweeps")
+    e.add_argument("--out", default="results")
+    e.add_argument("--workers", type=int, default=None)
+    e.set_defaults(fn=cmd_experiment)
 
     t = sub.add_parser("topos", help="list built-in topologies")
     t.set_defaults(fn=lambda a: print("\n".join(f"{n}: {topology.get(n)}" for n in
