@@ -1,4 +1,4 @@
-# Real-testbed port (OS-Ken/Ryu + Mininet + Open vSwitch)
+# Real testbed (OS-Ken/Ryu + Mininet + Open vSwitch)
 
 The emulator in `ffr/` is where the algorithms are developed and evaluated.
 This folder runs the **same FA-FRR planning code** against real OpenFlow 1.3
@@ -8,48 +8,110 @@ switches.
 |------|---------|-------|
 | `ffr_osken_app.py` | the FA-FRR controller app (FF groups, VLAN-tagged detours, barriers, re-optimisation, hold-down) | os-ken (or ryu) |
 | `run_controller.py` | launcher (os-ken 4.x has no `osken-manager` binary) | os-ken |
-| `topo_export.py` | writes the topology JSON shared by Mininet and the controller | — |
+| `topo_export.py` | writes the topology JSON shared by Mininet and the controller | – |
 | `mininet_ffr.py` | builds the topology in Mininet, injects a failure, measures loss/outage with 10 ms pings | root, Mininet, OVS |
+| `run_experiments.sh` | runs every scenario several times and keeps the logs | root, Mininet, OVS, os-ken |
+| `summarise.py` | turns the logs into `results/summary.md` | – |
 | `test_osken_app.py` | unit tests with fake datapaths; every message is serialised to OpenFlow wire format | os-ken, pytest |
 | `fake_switches.py` | integration test: fake switches over real TCP (handshake, barriers, PORT_STATUS) | os-ken |
 
-## Verified in this repository (no root needed)
+## Setup
 
 ```bash
-python3.10 -m venv /tmp/osken && /tmp/osken/bin/pip install -r testbed/requirements.txt -e .
-/tmp/osken/bin/python -m pytest testbed/test_osken_app.py          # 3 passed
+# Debian/Ubuntu
+sudo apt install mininet openvswitch-switch
+# Arch: openvswitch from the repositories, Mininet from source
+#   (make mnexec; install it to /usr/local/bin; pip install .)
+sudo systemctl start openvswitch-switch     # Arch: ovsdb-server ovs-vswitchd
 
-/tmp/osken/bin/python -c "import sys; sys.path.insert(0,'testbed'); \
+python3.12 -m venv .venv-testbed
+.venv-testbed/bin/pip install -r testbed/requirements.txt -e .
+.venv-testbed/bin/pip install mininet       # or the Mininet source tree
+```
+
+## Checks without root
+
+```bash
+.venv-testbed/bin/python -m pytest testbed/test_osken_app.py      # 5 passed
+
+.venv-testbed/bin/python -c "import sys; sys.path.insert(0,'testbed'); \
   from ffr import topology as T; from ffr.network import Network; from topo_export import export; \
   t=T.abilene().add_host_per_switch(); n=Network(t); \
   export(t, lambda a,b:n.switches[a].port_to(b), lambda h:n.switches[t.hosts[h]].port_to(h), '/tmp/t.json')"
-/tmp/osken/bin/python testbed/run_controller.py --port 16653 --topo /tmp/t.json &
-/tmp/osken/bin/python testbed/fake_switches.py --port 16653 --topo /tmp/t.json
-# initial install: 415 flow adds, 110 group adds
-# after DEN-KSC failure: 110 group modifies, 11 old-detour deletes
+.venv-testbed/bin/python testbed/run_controller.py --port 16653 --topo /tmp/t.json &
+.venv-testbed/bin/python testbed/fake_switches.py --port 16653 --topo /tmp/t.json
+# initial install: 695 flow adds, 390 group adds
+# after DEN-KSC failure: 390 group modifies, 11 old-detour deletes
 # OK
 ```
 
-## Full Mininet run (requires root; not executed by the author's CI)
+## Mininet experiments
+
+One scenario by hand, in two terminals:
 
 ```bash
-# terminal 1
-sudo python3 testbed/mininet_ffr.py --topo abilene --fail DEN-KSC            # cut
-sudo python3 testbed/mininet_ffr.py --topo abilene --fail DEN-KSC --silent --bfd   # gray failure
-# terminal 2 (once the topology file is written)
-FFR_TOPO=/tmp/ffr_topo.json python3 testbed/run_controller.py
+sudo .venv-testbed/bin/python testbed/mininet_ffr.py --topo abilene --fail DEN-KSC
+FFR_TOPO=/tmp/ffr_topo.json .venv-testbed/bin/python testbed/run_controller.py
 ```
 
-Expected behaviour: pairs crossing DEN–KSC lose a handful of 10 ms probes on a
-cut (OVS carrier detection), recover without controller involvement, and the
-controller log shows `FA-FRR gen 2` after the failure.
+Variants: `--silent` (gray failure: the interfaces stay up, every frame is
+dropped), `--bfd` (OVS BFD on the switch links), `--fail A-B,C-D` (several
+links at the same instant), `--srlg NAME:A-B,C-D` (declare a shared risk
+group), `--cli` (Mininet CLI at the end, e.g. `sh ovs-ofctl -O OpenFlow13
+dump-groups s6`).
 
-Caveats (honest list):
-* OVS uses BFD for fast-failover liveness when `bfd:enable=true`; whether it
-  also emits `PORT_STATUS` with `OFPPS_LINK_DOWN` on a BFD-only (gray) failure
-  depends on the OVS version. If not, the data plane still reroutes, but the
+All scenarios, five runs each:
+
+```bash
+testbed/run_experiments.sh .venv-testbed/bin/python 5
+```
+
+## Results
+
+Abilene, 11 OVS switches, link delays from fibre distance, 5 runs per
+scenario, probed pairs whose shortest path crosses a failed link
+(`testbed/results/`, regenerated with `run_experiments.sh`):
+
+| scenario | runs | pairs | lost / pair | mean outage | worst outage | controller notified | re-optimisation |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| link cut (DEN-KSC) | 5 | 30 | 1.9 | 14 ms | 30 ms | 8 ms | 29 ms |
+| gray failure, no BFD | 5 | 30 | 179.3 | 1793 ms | 1820 ms | never | never |
+| gray failure, OVS BFD 10 ms | 5 | 30 | 4.0 | 40 ms | 60 ms | never | never |
+| duct cut (DEN-KSC + SNV-DEN), SRLG not declared | 5 | 60 | 3.8 | 38 ms | 60 ms | 7 ms | 47 ms |
+| duct cut (DEN-KSC + SNV-DEN), SRLG declared | 5 | 60 | 2.1 | 20 ms | 30 ms | 8 ms | 46 ms |
+
+* **Link cut:** OVS sees the carrier drop and the fast-failover group
+  switches to the backup locally. Outages are 14 ms on average, about one
+  10 ms probe plus the packets in flight on the dead link. The controller
+  hears of the cut 8 ms later and installs the next generation of backups in
+  about 30 ms, after traffic has already moved.
+* **Gray failure:** without BFD nothing notices the blackhole, and traffic is
+  lost for the whole 1.8 s the failure lasts. With OVS BFD at 10 ms × 3 the
+  fast-failover group reroutes and the outage drops to 40 ms. OVS does not
+  report BFD failures to the controller, so no re-optimisation follows.
+* **Duct cut:** when both links of the duct fail at once, a backup that uses
+  the other link of the duct is dead too. If the shared risk group is
+  declared, FA-FRR's backups avoid it, and the mean outage falls from 38 ms
+  to 20 ms (worst case from 60 to 30 ms). Without the declaration those flows
+  wait for the controller's re-optimisation instead.
+
+## Notes on OpenFlow and Open vSwitch
+
+* **U-turn backups.** OpenFlow drops a packet that is output to the port it
+  arrived on. When a backup path starts by going back towards the previous
+  switch, the bucket must use `OFPP_IN_PORT`. The app therefore installs, for
+  every (switch, destination), one FF group per ingress neighbour (selected by
+  an `in_port` rule) in addition to the default group.
+* **Two ends, two reports.** Each end of a link sends its own `PORT_STATUS`,
+  and the end taken down administratively reports `OFPPC_PORT_DOWN` with a
+  live state. The app keeps the state of each end and treats the link as up
+  only when both ends are up.
+* **BFD and the controller.** With `bfd:enable=true`, OVS uses the BFD session
+  state for fast-failover liveness, so the data plane reroutes a gray failure.
+  It does not send `PORT_STATUS` for a BFD-detected failure, so the
   controller does not re-optimise until the carrier changes.
-* Emulated link delays use `tc netem` (TCLink); sub-millisecond accuracy is not
-  guaranteed.
+* Emulated link delays use `tc netem` (TCLink); sub-millisecond accuracy is
+  not guaranteed, and pings at 10 ms intervals give outages to the nearest
+  10 ms.
 * Tags are VLAN ids 2–4001; very large topologies with many generations
   would need MPLS labels instead.
