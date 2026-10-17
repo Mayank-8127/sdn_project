@@ -2,8 +2,10 @@
 
 Examples::
 
-    python -m ffr run --topo abilene --app static --fail DEN-KSC@0.3
-    python -m ffr run --topo ring6 --app static --tables s1
+    python -m ffr run --topo abilene --app static --fail DEN-KSC@0.4
+    python -m ffr run --topo ring6 --app frr-link --tables s1
+    python -m ffr run --topo abilene --app fa-frr --srlg duct:DEN-KSC,SNV-DEN \
+        --fail DEN-KSC@0.4 --fail SNV-DEN@0.4 -v
     python -m ffr topos
 """
 
@@ -27,10 +29,27 @@ def parse_failure(text: str):
     return a, b, float(when or 0.3), None
 
 
+def parse_value(text: str):
+    for conv in (int, float):
+        try:
+            return conv(text)
+        except ValueError:
+            pass
+    return {"true": True, "false": False}.get(text.lower(), text)
+
+
 def cmd_run(args) -> int:
     topo = topology.get(args.topo).add_host_per_switch()
+    for spec in args.srlg or []:
+        name, _, links = spec.partition(":")
+        topo.add_srlg(name, *(tuple(l.split("-")) for l in links.split(",")))
+    if args.length_risk:
+        topo.set_length_risk(per_ms=args.length_risk)
     app_kw = {"ctrl_delay": args.ctrl_delay, "compute_time": args.compute_time,
               "lldp_interval": args.lldp}
+    for opt in args.opt or []:
+        k, _, v = opt.partition("=")
+        app_kw[k.replace("-", "_")] = parse_value(v)
     net_kw = {"rule_install_time": args.rule_time, "los_delay": args.los_delay,
               "detection": args.detection, "bfd_interval": args.bfd_interval,
               "bfd_mult": args.bfd_mult}
@@ -74,8 +93,8 @@ def main(argv=None) -> int:
     r.add_argument("--app", default="static", choices=sorted(apps.APPS))
     r.add_argument("--flows", default="all", help="'all' or a number of random pairs")
     r.add_argument("--rate", type=float, default=1000.0, help="packets/s per flow")
-    r.add_argument("--start", type=float, default=0.1)
-    r.add_argument("--stop", type=float, default=0.6)
+    r.add_argument("--start", type=float, default=0.2, help="traffic start (after rule set-up)")
+    r.add_argument("--stop", type=float, default=0.8)
     r.add_argument("--fail", action="append", help="cut link: A-B@t or A-B@t1:t2 (repeatable)")
     r.add_argument("--fail-silent", action="append", help="gray failure: A-B@t[:t2]")
     r.add_argument("--fail-node", action="append", help="crash switch: NAME@t")
@@ -88,6 +107,11 @@ def main(argv=None) -> int:
     r.add_argument("--compute-time", type=float, default=0.005, help="controller compute time (s)")
     r.add_argument("--los-delay", type=float, default=0.001, help="loss-of-signal detection (s)")
     r.add_argument("--seed", type=int, default=1)
+    r.add_argument("--srlg", action="append", help="shared risk group NAME:A-B,C-D (repeatable)")
+    r.add_argument("--length-risk", type=float, default=0.0,
+                   help="failure prior per ms of link delay (e.g. 0.01)")
+    r.add_argument("--opt", action="append",
+                   help="app option KEY=VALUE, e.g. lam=10 holddown=0.5 reoptimize=false")
     r.add_argument("--tables", nargs="*", help="print the flow tables of these switches")
     r.add_argument("-v", "--verbose", action="store_true")
     r.set_defaults(fn=cmd_run)
