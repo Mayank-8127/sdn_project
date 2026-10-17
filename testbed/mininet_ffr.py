@@ -99,7 +99,8 @@ def parse_ping(out: str, count: int):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--topo", default="abilene", choices=sorted(T.BUILTIN))
-    ap.add_argument("--fail", default="DEN-KSC", help="link A-B to fail")
+    ap.add_argument("--fail", default="DEN-KSC",
+                    help="link A-B to fail; A-B,C-D fails several links at the same instant")
     ap.add_argument("--silent", action="store_true", help="gray failure instead of a cut")
     ap.add_argument("--bfd", action="store_true", help="enable OVS BFD on switch links")
     ap.add_argument("--bfd-ms", type=int, default=10)
@@ -141,14 +142,15 @@ def main():
             break
         time.sleep(1)
 
-    a, b = args.fail.split("-")
-    link = links.get((a, b)) or links.get((b, a))
-    # probe pairs whose shortest path crosses the failed link (others are unaffected)
+    failed = [tuple(x.split("-")) for x in args.fail.split(",")]
+    failed_links = [links.get((a, b)) or links.get((b, a)) for a, b in failed]
+    # probe pairs whose shortest path crosses a failed link (others are unaffected)
     from ffr.routing import Graph, path_edges, shortest_path, edge
     g = Graph.from_topology(topo)
     names = sorted(topo.hosts)
-    crossing = [(x, y) for x in names for y in names if x != y and edge(a, b) in
-                path_edges(shortest_path(g, topo.hosts[x], topo.hosts[y]))]
+    cut = {edge(a, b) for a, b in failed}
+    crossing = [(x, y) for x in names for y in names if x != y and cut &
+                set(path_edges(shortest_path(g, topo.hosts[x], topo.hosts[y])))]
     pairs = crossing[:: max(1, len(crossing) // args.pairs)][:args.pairs]
     count = int(args.duration / PING_INTERVAL)
     procs = {}
@@ -158,16 +160,18 @@ def main():
              hosts[y].IP()])
     time.sleep(args.fail_at)
     print(f"*** failing {args.fail} ({'silent' if args.silent else 'cut'})")
-    if args.silent:
-        silent_fail(link, True)
-    else:
-        net.configLinkStatus(sw[a].name, sw[b].name, "down")
+    for (a, b), link in zip(failed, failed_links):
+        if args.silent:
+            silent_fail(link, True)
+        else:
+            net.configLinkStatus(sw[a].name, sw[b].name, "down")
     time.sleep(args.restore_at - args.fail_at)
     print(f"*** restoring {args.fail}")
-    if args.silent:
-        silent_fail(link, False)
-    else:
-        net.configLinkStatus(sw[a].name, sw[b].name, "up")
+    for (a, b), link in zip(failed, failed_links):
+        if args.silent:
+            silent_fail(link, False)
+        else:
+            net.configLinkStatus(sw[a].name, sw[b].name, "up")
     print("*** results (outage resolution 10 ms)")
     for (x, y), p in procs.items():
         out = p.communicate()[0].decode()
