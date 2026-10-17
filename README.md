@@ -1,7 +1,7 @@
 # Failure-Aware Fast Rerouting in SDN
 
-An implementation and study of **fast failure recovery
-in Software-Defined Networks**:
+An implementation and evaluation of **fast failure recovery in
+Software-Defined Networks**:
 
 * a deterministic **OpenFlow emulator** in pure Python (flow tables, group
   tables with fast-failover, port liveness, control-channel latency, rule
@@ -10,7 +10,8 @@ in Software-Defined Networks**:
   recovery" to **Failure-Aware Fast Reroute (FA-FRR)**,
 * an **evaluation suite** (≈1,000 simulations on Abilene and NSFNET) with a
   generated report,
-* a **real-testbed port** for OS-Ken/Ryu + Mininet + Open vSwitch.
+* a **real-testbed port** for OS-Ken/Ryu + Mininet + Open vSwitch, validated
+  on Abilene in Mininet.
 
 ## Headline result
 
@@ -22,7 +23,10 @@ in Software-Defined Networks**:
 | packets lost on a flapping link | 1,142 | 273 | – | **82** |
 
 FA-FRR is the only scheme that is both millisecond-fast and never loses a
-flow in these scenarios. Full data: [docs/results/REPORT.md](docs/results/REPORT.md).
+flow in these scenarios. On Mininet with Open vSwitch (Abilene, 5 runs) a link
+cut costs 14 ms of traffic on average, and declaring the Abilene duct as an
+SRLG halves the outage when the duct is cut (38 → 20 ms).
+Full data: [docs/results/REPORT.md](docs/results/REPORT.md).
 
 ## Quick start
 
@@ -76,7 +80,7 @@ ffr/                     the emulator and controller apps
   risk.py                failure-aware risk model
   apps/                  static, reactive, frr, e2e, fa_frr
   experiments/           evaluation suite, plots, report
-testbed/                 OS-Ken/Ryu app, Mininet script, wire-level tests
+testbed/                 OS-Ken/Ryu app, Mininet scripts, wire-level tests, Mininet results
 tests/                   pytest suite
 docs/                    interim progress report, experiment results, project report and presentation
 ```
@@ -106,3 +110,4 @@ was at that step.
 | v0.7 | experiment suite, figures, generated report |
 | v0.8 | OS-Ken/Ryu app + Mininet scripts, wire-level tests |
 | v1.0 | project overview, CI |
+| v1.1 | validation on Mininet/Open vSwitch: `IN_PORT` U-turn groups, per-end port state, scenario runner, results |
