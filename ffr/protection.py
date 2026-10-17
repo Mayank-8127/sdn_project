@@ -9,8 +9,8 @@ For one destination switch ``d`` we compute, for every other switch ``u``:
 
 Detours are taken from the shortest-path tree of the graph *without* the
 protected element. That has a useful consequence: all detours that avoid the
-same element X and lead to the same destination agree on every switch's next
-hop. So a packet only needs to carry a label meaning "I am avoiding X" (like
+same element X (in the same way, see ``HopPlan.tag_key``) and lead to the
+same destination agree on every switch's next hop. So a packet only needs to carry a label meaning "I am avoiding X" (like
 the not-via addresses of RFC 6981), and one rule per (switch, destination, X)
 suffices.
 """
@@ -43,6 +43,12 @@ class HopPlan:
     primary: str               # next-hop switch on the primary path
     protects: Element | None   # what the detour avoids (None: no backup)
     detour: list[str] | None   # [switch, ..., dst]
+    risk_disjoint: bool = False  # detour also avoids the element's shared risks
+
+    @property
+    def tag_key(self) -> tuple:
+        """Detours with the same key follow the same tree, so may share a tag."""
+        return (self.protects, self.risk_disjoint)
 
     @property
     def protected(self) -> bool:
@@ -78,7 +84,7 @@ def plan_destination(graph: Graph, dst: str, mode: str = "link",
     trees: dict[tuple, dict[str, str]] = {}
 
     def detour_tree(el: Element, extra=((), ())):
-        key = (el, tuple(sorted(map(sorted, extra[0]))), tuple(sorted(extra[1])))
+        key = (el, tuple(sorted(tuple(sorted(e)) for e in extra[0])), tuple(sorted(extra[1])))
         if key not in trees:
             e2, n2 = set(xe) | set(extra[0]), set(xn) | set(extra[1])
             if el[0] == "link":
@@ -89,13 +95,12 @@ def plan_destination(graph: Graph, dst: str, mode: str = "link",
                                       weight=weight)
         return trees[key]
 
-    def find(el: Element, u: str):
-        if detour_exclusions is not None:
+    def find(el: Element, u: str, with_extra: bool):
+        if with_extra:
             extra = detour_exclusions(el)
-            if extra and (extra[0] or extra[1]):
-                path = _follow(detour_tree(el, extra), u, dst)
-                if path:
-                    return path
+            if not extra or not (extra[0] or extra[1]):
+                return None  # nothing extra to avoid: same as the plain attempt
+            return _follow(detour_tree(el, extra), u, dst)
         return _follow(detour_tree(el), u, dst)
 
     plans: dict[str, HopPlan] = {}
@@ -104,13 +109,19 @@ def plan_destination(graph: Graph, dst: str, mode: str = "link",
         if mode == "node" and v != dst:
             candidates.append(node_element(v))
         candidates.append(link_element(u, v))
-        chosen, path = None, None
-        for el in candidates:
-            path = find(el, u)
+        # Preference order: a detour that also avoids shared risks (node, then
+        # link protection), then plain node, then plain link protection.
+        # (A node detour that may die with the failed link is worse than a
+        # link detour that is risk-disjoint.)
+        attempts = ([(el, True) for el in candidates] if detour_exclusions else [])
+        attempts += [(el, False) for el in candidates]
+        chosen, path, rd = None, None, False
+        for el, with_extra in attempts:
+            path = find(el, u, with_extra)
             if path:
-                chosen = el
+                chosen, rd = el, with_extra
                 break
-        plans[u] = HopPlan(u, v, chosen, path)
+        plans[u] = HopPlan(u, v, chosen, path, rd)
     return plans
 
 

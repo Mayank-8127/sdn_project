@@ -39,15 +39,16 @@ class LocalFRR(StaticRouting):
 
     def __init__(self, net, **kw):
         super().__init__(net, **kw)
-        self.tags: dict[Element, int] = {}
+        self.tags: dict[tuple, int] = {}
         self.gids: dict[tuple[str, str], int] = {}
         self.plans: dict[str, dict[str, HopPlan]] = {}  # host -> plans
 
     # -- identifiers -----------------------------------------------------------
-    def tag_for(self, el: Element) -> int:
-        if el not in self.tags:
-            self.tags[el] = len(self.tags) + 1
-        return self.tags[el]
+    def tag_for(self, key: tuple) -> int:
+        """One tag per way of avoiding an element (see ``HopPlan.tag_key``)."""
+        if key not in self.tags:
+            self.tags[key] = len(self.tags) + 1
+        return self.tags[key]
 
     def gid_for(self, switch: str, host: str) -> int:
         key = (switch, host)
@@ -74,7 +75,7 @@ class LocalFRR(StaticRouting):
             p = self.port(u, hp.primary)
             buckets = [Bucket((Output(p),), watch_port=p)]
             if hp.protected:
-                t = self.tag_for(hp.protects)
+                t = self.tag_for(hp.tag_key)
                 w = hp.detour[1]
                 q = self.port(u, w)
                 buckets.append(Bucket((SetTag(t), Output(q)), watch_port=q))
