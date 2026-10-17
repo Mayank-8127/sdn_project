@@ -10,6 +10,7 @@ With classic Ryu you can instead run ``ryu-manager testbed/ffr_osken_app.py``.
 """
 
 import argparse
+import logging
 import os
 import sys
 
@@ -23,6 +24,8 @@ def main():
     ap.add_argument("--topo", default=os.environ.get("FFR_TOPO", "/tmp/ffr_topo.json"))
     args = ap.parse_args()
     os.environ["FFR_TOPO"] = args.topo
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s.%(msecs)03d %(name)s %(message)s", datefmt="%H:%M:%S")
 
     from os_ken import cfg
     from os_ken.base import app_manager
