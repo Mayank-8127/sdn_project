@@ -78,7 +78,7 @@ ffr/                     the emulator and controller apps
   experiments/           evaluation suite, plots, report
 testbed/                 OS-Ken/Ryu app, Mininet script, wire-level tests
 tests/                   pytest suite
-docs/                    interim progress report, experiment results
+docs/                    interim progress report, experiment results, project report and presentation
 ```
 
 ## Documentation
@@ -87,6 +87,7 @@ docs/                    interim progress report, experiment results
 |-----|---------|
 | [progress/](docs/progress/README.md) | interim progress report and presentation (v0.4) |
 | [results/](docs/results/REPORT.md) | evaluation results, figures and raw data |
+| [report/](docs/report/README.md) | project report (Word/PDF) and presentation (PowerPoint/PDF) |
 
 ## Versions
 
