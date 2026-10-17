@@ -8,8 +8,10 @@ in two terminals::
     # 1) write the topology file and start the network (it waits for the controller)
     sudo python3 testbed/mininet_ffr.py --topo abilene --fail DEN-KSC --bfd
 
-    # 2) start the controller (OS-Ken, or Ryu with ryu-manager)
-    FFR_TOPO=/tmp/ffr_topo.json osken-manager testbed/ffr_osken_app.py
+    # 2) start the controller (OS-Ken; with Ryu use ryu-manager ffr_osken_app.py)
+    FFR_TOPO=/tmp/ffr_topo.json python3 testbed/run_controller.py
+
+``testbed/run_experiments.sh`` runs all scenarios this way.
 
 The script then pings between host pairs every 10 ms, cuts the link (or makes
 it fail silently with ``--silent``), restores it, and reports per-pair loss
@@ -76,12 +78,23 @@ def enable_bfd(net, links, min_ms):
 
 
 def silent_fail(link, on=True):
-    """Gray failure: interfaces stay up, every frame is dropped."""
+    """Gray failure: interfaces stay up, every received frame is dropped.
+
+    Uses the ingress hook so it does not disturb the root qdisc TCLink uses
+    for the link delay.
+    """
     for intf in (link.intf1, link.intf2):
         if on:
-            intf.node.cmd(f"tc qdisc add dev {intf.name} root netem loss 100%")
+            intf.node.cmd(f"tc qdisc add dev {intf.name} handle ffff: ingress")
+            intf.node.cmd(f"tc filter add dev {intf.name} parent ffff: matchall action drop")
         else:
-            intf.node.cmd(f"tc qdisc del dev {intf.name} root netem")
+            intf.node.cmd(f"tc qdisc del dev {intf.name} handle ffff: ingress")
+
+
+def stamp():
+    """Wall-clock time in the controller log's format, to line events up."""
+    t = time.time()
+    return time.strftime("%H:%M:%S", time.localtime(t)) + f".{int(t * 1000) % 1000:03d}"
 
 
 def parse_ping(out: str, count: int):
@@ -159,14 +172,14 @@ def main():
             ["ping", "-n", "-i", str(PING_INTERVAL), "-c", str(count), "-W", "1",
              hosts[y].IP()])
     time.sleep(args.fail_at)
-    print(f"*** failing {args.fail} ({'silent' if args.silent else 'cut'})")
+    print(f"*** {stamp()} failing {args.fail} ({'silent' if args.silent else 'cut'})")
     for (a, b), link in zip(failed, failed_links):
         if args.silent:
             silent_fail(link, True)
         else:
             net.configLinkStatus(sw[a].name, sw[b].name, "down")
     time.sleep(args.restore_at - args.fail_at)
-    print(f"*** restoring {args.fail}")
+    print(f"*** {stamp()} restoring {args.fail}")
     for (a, b), link in zip(failed, failed_links):
         if args.silent:
             silent_fail(link, False)
