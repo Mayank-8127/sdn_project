@@ -142,7 +142,9 @@ def main():
     flows = sum(s.flow_adds for s in sws.values())
     groups = sum(s.group_adds for s in sws.values())
     print(f"initial install: {flows} flow adds, {groups} group adds")
-    ok = flows > 0 and groups == len(spec["hosts"]) * (len(spec["hosts"]) - 1)
+    # per switch and remote host: a default FF group plus one per ingress neighbour
+    expected = (len(spec["hosts"]) - 1) * (len(spec["switches"]) + 2 * len(spec["links"]))
+    ok = flows > 0 and groups == expected
 
     a, b = args.fail.split("-")
     link = next(l for l in spec["links"] if {l["a"], l["b"]} == {a, b})

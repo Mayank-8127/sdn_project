@@ -15,6 +15,7 @@ emulator               OpenFlow 1.3 / OVS
 ``Match(tag=T)``       ``vlan_vid=T|PRESENT``
 ``PopTag()``           ``pop_vlan`` (only on the tagged egress rule)
 FF group               ``OFPGT_FF`` group, buckets with ``watch_port``
+U-turn to the sender   ``OFPP_IN_PORT`` in a per-ingress-port FF group
 ``Barrier``            ``OFPBarrierRequest`` / ``EventOFPBarrierReply``
 ``PortStatus``         ``EventOFPPortStatus`` (OFPPS_LINK_DOWN)
 LOS / BFD              OVS port carrier, or OVS BFD (``bfd:enable=true``)
@@ -22,7 +23,7 @@ LOS / BFD              OVS port carrier, or OVS BFD (``bfd:enable=true``)
 
 Run (see ``testbed/README.md``)::
 
-    FFR_TOPO=/tmp/ffr_topo.json osken-manager testbed/ffr_osken_app.py
+    FFR_TOPO=/tmp/ffr_topo.json python3 testbed/run_controller.py
     # or with Ryu: ryu-manager testbed/ffr_osken_app.py  (import fallback below)
 
 The topology file is written by ``testbed/mininet_ffr.py``.
@@ -56,6 +57,7 @@ from ffr.topology import Topology  # noqa: E402
 
 PRIO_EGRESS_TAGGED = 110
 PRIO_PRIMARY = 100
+PRIO_PRIMARY_IN_PORT = 101
 PRIO_DETOUR = 200
 COOKIE_PRIMARY = 1
 DETOUR_BASE = 1000
@@ -109,8 +111,8 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
         self.generation = 0
         self.gen_switches: dict[int, set[str]] = {}
         self.groups_installed: set[tuple[str, int]] = set()
-        self.primary_done: set[tuple[str, str]] = set()
-        self.gids: dict[tuple[str, str], int] = {}
+        self.primary_done: set[tuple] = set()
+        self.gids: dict[tuple, int] = {}
         self.tags: dict[tuple, int] = {}
         self.barriers: dict[int, tuple[set, object]] = {}
         self._barrier_seq = 0
@@ -127,8 +129,8 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
             self.tags[k] = (len(self.tags) % 4000) + 2  # VLAN ids 2..4001
         return self.tags[k]
 
-    def gid_for(self, sw: str, host: str) -> int:
-        return self.gids.setdefault((sw, host), len(self.gids) + 1)
+    def gid_for(self, sw: str, host: str, via: str | None = None) -> int:
+        return self.gids.setdefault((sw, host, via), len(self.gids) + 1)
 
     def send(self, sw: str, msg) -> None:
         self.datapaths[sw].send_msg(msg)
@@ -225,27 +227,41 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
                           COOKIE_PRIMARY)
                 self.primary_done.add((hsw, host))
             for u, hp in sorted(plans.items()):
-                dp = self.datapaths[u]
-                p, ofp = dp.ofproto_parser, dp.ofproto
-                prim = self.ports[(u, hp.primary)]
-                buckets = [p.OFPBucket(watch_port=prim, watch_group=ofp.OFPG_ANY,
-                                       actions=[p.OFPActionOutput(prim)])]
-                if hp.protected:
-                    q = self.ports[(u, hp.detour[1])]
-                    t = self.tag_for(hp.tag_key)
-                    buckets.append(p.OFPBucket(watch_port=q, watch_group=ofp.OFPG_ANY, actions=[
-                        p.OFPActionPushVlan(0x8100),
-                        p.OFPActionSetField(vlan_vid=(t | ofp.OFPVID_PRESENT)),
-                        p.OFPActionOutput(q)]))
-                gid = self.gid_for(u, host)
-                cmd = ofp.OFPGC_MODIFY if (u, gid) in self.groups_installed else ofp.OFPGC_ADD
-                self.send(u, p.OFPGroupMod(dp, cmd, ofp.OFPGT_FF, gid, buckets))
-                self.groups_installed.add((u, gid))
-                if (u, host) not in self.primary_done:
-                    self.flow(u, p.OFPMatch(eth_type=ETH_IPV4, ipv4_dst=ip),
-                              [p.OFPActionGroup(gid)], PRIO_PRIMARY, COOKIE_PRIMARY)
-                    self.primary_done.add((u, host))
+                # One FF group per ingress neighbour as well as the default one:
+                # OpenFlow drops output to the ingress port, so a packet whose
+                # backup turns back where it came from needs OFPP_IN_PORT.
+                for via in [None] + sorted(self.graph.adj[u]):
+                    self.install_group(u, host, hp, ip, via)
         self.barrier(list(self.datapaths), lambda: self.cleanup(gen))
+
+    def install_group(self, u, host, hp, ip, via):
+        dp = self.datapaths[u]
+        p, ofp = dp.ofproto_parser, dp.ofproto
+        in_port = self.ports[(u, via)] if via else None
+
+        def output(port):
+            return p.OFPActionOutput(ofp.OFPP_IN_PORT if port == in_port else port)
+
+        prim = self.ports[(u, hp.primary)]
+        buckets = [p.OFPBucket(watch_port=prim, watch_group=ofp.OFPG_ANY,
+                               actions=[output(prim)])]
+        if hp.protected:
+            q = self.ports[(u, hp.detour[1])]
+            t = self.tag_for(hp.tag_key)
+            buckets.append(p.OFPBucket(watch_port=q, watch_group=ofp.OFPG_ANY, actions=[
+                p.OFPActionPushVlan(0x8100),
+                p.OFPActionSetField(vlan_vid=(t | ofp.OFPVID_PRESENT)),
+                output(q)]))
+        gid = self.gid_for(u, host, via)
+        cmd = ofp.OFPGC_MODIFY if (u, gid) in self.groups_installed else ofp.OFPGC_ADD
+        self.send(u, p.OFPGroupMod(dp, cmd, ofp.OFPGT_FF, gid, buckets))
+        self.groups_installed.add((u, gid))
+        if (u, host, via) not in self.primary_done:
+            match = (p.OFPMatch(in_port=in_port, eth_type=ETH_IPV4, ipv4_dst=ip) if via
+                     else p.OFPMatch(eth_type=ETH_IPV4, ipv4_dst=ip))
+            self.flow(u, match, [p.OFPActionGroup(gid)],
+                      PRIO_PRIMARY_IN_PORT if via else PRIO_PRIMARY, COOKIE_PRIMARY)
+            self.primary_done.add((u, host, via))
 
     def cleanup(self, gen):
         for old in sorted(g for g in self.gen_switches if g < gen):

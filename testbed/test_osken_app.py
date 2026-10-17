@@ -92,7 +92,8 @@ def test_initial_install_is_complete_and_valid(app):
     assert app.generation == 1
     for sw in app.dpids:
         groups = of_type(app, sw, parser.OFPGroupMod)
-        assert len(groups) == 10  # one FF group per remote destination host
+        # per remote destination host: a default FF group plus one per ingress neighbour
+        assert len(groups) == 10 * (1 + len(app.graph.adj[sw]))
         assert all(g.type == ofp.OFPGT_FF for g in groups)
         assert all(len(g.buckets) == 2 for g in groups)  # Abilene is 2-connected
     # detour rules match on a VLAN tag
@@ -153,3 +154,21 @@ def test_link_stays_down_until_both_ends_are_up(app):
     assert e in app.down and e not in app.held
     port_status(app, "DEN", "KSC", state=ofp.OFPPS_LIVE)  # both ends up
     assert e not in app.down and e in app.held
+
+
+def test_backup_back_through_the_ingress_port_uses_in_port(app):
+    """OpenFlow drops output to the ingress port; a U-turn must use OFPP_IN_PORT."""
+    answer_barriers(app)
+    uturns = 0
+    for host, plans in app.plans.items():
+        for u, hp in plans.items():
+            if not hp.protected:
+                continue
+            back = hp.detour[1]
+            gid = app.gids[(u, host, back)]
+            mod = [m for m in of_type(app, u, parser.OFPGroupMod) if m.group_id == gid][-1]
+            out = [a.port for a in mod.buckets[1].actions if isinstance(a, parser.OFPActionOutput)]
+            assert out == [ofp.OFPP_IN_PORT]
+            assert mod.buckets[1].watch_port == app.ports[(u, back)]
+            uturns += 1
+    assert uturns > 0
