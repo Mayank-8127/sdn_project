@@ -100,12 +100,16 @@ def test_initial_install_is_complete_and_valid(app):
     assert any("vlan_vid" in dict(m.match.items()) for m in den)
 
 
-def port_down(app, sw, peer):
+def port_status(app, sw, peer, state=ofp.OFPPS_LINK_DOWN, config=0):
     dp = app.fake[sw]
     port = app.ports[(sw, peer)]
-    desc = parser.OFPPort(port, "00:00:00:00:00:01", f"{sw}-eth{port}", 0,
-                          ofp.OFPPS_LINK_DOWN, 0, 0, 0, 0, 0, 0)
+    desc = parser.OFPPort(port, "00:00:00:00:00:01", f"{sw}-eth{port}", config,
+                          state, 0, 0, 0, 0, 0, 0)
     app.on_port_status(Ev(parser.OFPPortStatus(dp, ofp.OFPPR_MODIFY, desc)))
+
+
+def port_down(app, sw, peer):
+    port_status(app, sw, peer)
 
 
 def test_failure_triggers_hitless_reoptimisation(app):
@@ -135,3 +139,17 @@ def test_srlg_sibling_is_avoided_by_backups(app):
         if hp and hp.protected and edge("DEN", hp.primary) == edge("DEN", "KSC"):
             used = {edge(a, b) for a, b in zip(hp.detour, hp.detour[1:])}
             assert sib not in used
+
+
+def test_link_stays_down_until_both_ends_are_up(app):
+    answer_barriers(app)
+    from ffr.routing import edge
+    e = edge("DEN", "KSC")
+    # OVS: the end taken down administratively reports PORT_DOWN with a live state,
+    # the far end loses carrier
+    port_status(app, "DEN", "KSC", state=ofp.OFPPS_LIVE, config=ofp.OFPPC_PORT_DOWN)
+    port_down(app, "KSC", "DEN")
+    port_status(app, "KSC", "DEN", state=ofp.OFPPS_LIVE)  # one end recovers
+    assert e in app.down and e not in app.held
+    port_status(app, "DEN", "KSC", state=ofp.OFPPS_LIVE)  # both ends up
+    assert e not in app.down and e in app.held

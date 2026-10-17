@@ -104,6 +104,7 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
         self.base_holddown = float(os.environ.get("FFR_HOLDDOWN", 5))
         self.datapaths = {}
         self.down: set = set()
+        self.ports_down: set[tuple[str, str]] = set()
         self.held: dict = {}
         self.generation = 0
         self.gen_switches: dict[int, set[str]] = {}
@@ -288,8 +289,16 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
                      if s == sw and p == msg.desc.port_no), None)
         if peer is None or peer not in self.graph.adj:
             return
-        down = bool(msg.desc.state & ofp.OFPPS_LINK_DOWN) or msg.reason == ofp.OFPPR_DELETE
-        self.link_change(edge(sw, peer), not down)
+        down = (bool(msg.desc.state & ofp.OFPPS_LINK_DOWN)
+                or bool(msg.desc.config & ofp.OFPPC_PORT_DOWN)
+                or msg.reason == ofp.OFPPR_DELETE)
+        # each end reports its own port; the link is live only when both ends are
+        if down:
+            self.ports_down.add((sw, peer))
+        else:
+            self.ports_down.discard((sw, peer))
+        live = (sw, peer) not in self.ports_down and (peer, sw) not in self.ports_down
+        self.link_change(edge(sw, peer), live)
 
     def link_change(self, e, live: bool):
         now = self.now()
