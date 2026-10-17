@@ -1,0 +1,4 @@
+# Controller side (any Python 3.10+). Mininet + Open vSwitch come from the OS
+# (e.g. `sudo apt install mininet openvswitch-switch`).
+os-ken>=2.0
+pytest
