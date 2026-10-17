@@ -23,6 +23,12 @@ class LinkSpec:
     b: str
     delay: float = DEFAULT_DELAY
     capacity: float = DEFAULT_CAPACITY
+    # Prior probability that this link fails during the planning horizon
+    # (e.g. from historical data or fibre length). Used by failure-aware routing.
+    fail_prob: float = 0.0
+    # Shared Risk Link Groups: names of risks this link shares with others
+    # (same conduit, same amplifier, same line card...).
+    srlgs: set[str] = field(default_factory=set)
 
     @property
     def key(self) -> frozenset[str]:
@@ -72,6 +78,24 @@ class Topology:
             if l.key == key:
                 return l
         return None
+
+    def add_srlg(self, name: str, *links: tuple[str, str]) -> "Topology":
+        """Declare that the given links share one risk (they may fail together)."""
+        for a, b in links:
+            spec = self.link(a, b)
+            if spec is None:
+                raise ValueError(f"unknown link {a}-{b}")
+            spec.srlgs.add(name)
+        return self
+
+    def srlg_members(self, name: str) -> list[LinkSpec]:
+        return [l for l in self.links if name in l.srlgs]
+
+    def set_length_risk(self, per_ms: float = 0.01, base: float = 0.001) -> "Topology":
+        """Failure prior proportional to length (delay): long fibres get cut more."""
+        for l in self.links:
+            l.fail_prob = min(0.99, base + per_ms * l.delay * 1000)
+        return self
 
     def neighbors(self, n: str) -> list[str]:
         out = []

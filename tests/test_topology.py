@@ -33,3 +33,15 @@ def test_validation():
         t.add_link("s1", "nope")
     with pytest.raises(KeyError):
         T.get("nope")
+
+
+def test_srlg_and_risk_priors():
+    t = T.abilene()
+    t.add_srlg("conduit-1", ("DEN", "KSC"), ("SNV", "DEN"))
+    assert {tuple(sorted(l.key)) for l in t.srlg_members("conduit-1")} == {
+        ("DEN", "KSC"), ("DEN", "SNV")}
+    with pytest.raises(ValueError):
+        t.add_srlg("x", ("SEA", "NYC"))
+    t.set_length_risk(per_ms=0.01, base=0.001)
+    assert t.link("LAX", "HOU").fail_prob == pytest.approx(0.001 + 0.01 * 11)
+    assert t.link("IND", "CHI").fail_prob < t.link("LAX", "HOU").fail_prob
