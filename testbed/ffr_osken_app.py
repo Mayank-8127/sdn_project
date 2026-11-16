@@ -259,7 +259,9 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
         rounds = {}
         for host, plans in self.plans.items():
             hsw = self.topo.hosts[host]
-            changed = {u: self.installed_primary.get((u, host)) != hp.primary
+            # first installation: no old next hop, nothing to order
+            changed = {u: (u, host) in self.installed_primary
+                       and self.installed_primary[(u, host)] != hp.primary
                        for u, hp in plans.items()}
             count = {hsw: 0}
 

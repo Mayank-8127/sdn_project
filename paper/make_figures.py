@@ -35,7 +35,7 @@ LABEL = {"reactive": "Reactive", "frr-node": "Local FRR (node)",
          "fa-frr-slowrules": "FA-FRR, 5 ms per rule"}
 COLOR = dict(APP_COLOR)
 COLOR["frr-srlg"] = "#4a3aa7"
-COLOR["fa-frr-unordered"] = "#1baf7a"
+COLOR["fa-frr-unordered"] = "#e87ba4"
 COLOR["fa-frr-slowrules"] = "#52514e"
 TOPOS = [("abilene", "Abilene"), ("nsfnet", "NSFNET"), ("grid5x5", "Grid 5x5")]
 
@@ -66,8 +66,8 @@ def load(name):
     return rows
 
 
-SCEN = [("single_link", "Single\nlink"), ("node_crash", "Switch\ncrash"),
-        ("srlg", "SRLG\ndouble"), ("sequential", "Sequential\ndouble")]
+SCEN = [("single_link", "Single"), ("node_crash", "Crash"),
+        ("srlg", "SRLG"), ("sequential", "Seq.")]
 
 
 def summaries():
@@ -151,19 +151,23 @@ def gap():
     rows = load("gap")
     S = {(r["topo"], r["app"], r["gap_ms"]): r for r in aggregate(rows, by=("topo", "app", "gap_ms"))}
     variants = ["frr-node", "fa-frr-unordered", "fa-frr", "fa-frr-slowrules"]
-    fig, axes = plt.subplots(1, 2, figsize=(3.5, 1.9), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(3.5, 2.5), sharey=True)
     for ax, (topo, title) in zip(axes, TOPOS[:2]):
         for v in variants:
             gs = sorted(g for (t, a, g) in S if t == topo and a == v)
             ax.plot(gs, [S[(topo, v, g)]["lost_pkts"] for g in gs], "-o", ms=2.5, lw=1.3,
                     color=COLOR[v], label=LABEL[v])
         ax.set_yscale("log")
-        ax.set_xlabel("Gap between failures (ms)")
+        ax.set_xscale("log")
+        ax.set_xticks([10, 30, 100, 300], ["10", "30", "100", "300"])
         ax.set_title(title, fontsize=8, color=INK)
         ax.grid(True, axis="both")
     axes[0].set_ylabel("Packets lost per run")
-    axes[0].legend(ncol=2, loc="lower left", bbox_to_anchor=(-0.25, 1.12), fontsize=6.3)
-    fig.tight_layout(w_pad=0.6)
+    fig.supxlabel("Gap between the two failures (ms)", fontsize=8, y=0.02)
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, ncol=2, loc="upper center", fontsize=6.8,
+               bbox_to_anchor=(0.5, 1.0))
+    fig.tight_layout(w_pad=0.6, rect=(0, 0.02, 1, 0.83))
     fig.savefig(OUT / "fig_gap.pdf")
     plt.close(fig)
 

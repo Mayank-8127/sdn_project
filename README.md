@@ -21,7 +21,7 @@ learns how the network fails and keeps the backups up to date. It has:
 * **controller strategies**: `static`, `reactive`, `frr-link`, `frr-node`,
   `frr-srlg`, `e2e`, `e2e-srlg` and the proposed `fa-frr` (plus FA-FRR
   ablations that switch off one mechanism each, used by the experiments);
-* an **evaluation suite** of 850 simulations on the Abilene and NSFNET
+* an **evaluation suite** of 3439 simulations on the Abilene and NSFNET
   backbones that regenerates every result in the paper;
 * a port of FA-FRR to a real **OpenFlow 1.3 controller** (OS-Ken) for
   Mininet and Open vSwitch, with the results of the Mininet runs.
@@ -109,7 +109,7 @@ python -m ffr topos
 python -m ffr experiment --out results
 ```
 
-This runs the 850 simulations on all CPU cores (about 3 minutes on 16 cores)
+This runs the 3439 simulations on all CPU cores (about 31 minutes on 16 cores)
 and writes into `results/`: one CSV file per experiment, the figures, and
 `REPORT.md` with every summary table. The copy shipped with the project is in
 `docs/results/`. The emulator is deterministic: every table in the new
@@ -120,7 +120,7 @@ differ (relative difference below 1e-14), because Python 3.12 changed how
 `sum()` rounds.
 
 `python -m ffr experiment --quick --out results-quick` runs a reduced suite
-in under a minute. One experiment alone: `python -m ffr experiment srlg --out results`
+in about 2 minutes. One experiment alone: `python -m ffr experiment srlg --out results`
 (names: `timeline single_link node_crash gray bfd_tradeoff srlg sequential
 flapping flapping_long gap srlg_followup risk_dynamic state risk_tradeoff`).
 
@@ -138,12 +138,15 @@ reads `docs/results/*.csv` and writes the paper's figures to `paper/figures/`.
 |---|---|---|
 | Fig. 2 (timeline) | `docs/results/timeline.csv`, `timeline.png` | `python -m ffr experiment timeline` |
 | Figs. 3–4, Table III | `single_link.csv`, `node_crash.csv`, `srlg.csv`, `sequential.csv` | `python -m ffr experiment single_link node_crash srlg sequential` |
-| Table IV, Fig. 5 | `gray.csv`, `bfd_tradeoff.csv` | `python -m ffr experiment gray bfd_tradeoff` |
-| Flapping (Sec. VI-D) | `flapping.csv` | `python -m ffr experiment flapping` |
-| Table V | `state.csv` | `python -m ffr experiment state` |
-| Fig. 6 | `risk_tradeoff.csv` | `python -m ffr experiment risk_tradeoff` |
-| Re-optimisation time (Sec. VI-B) | controller log | `python -m ffr run --topo abilene --app fa-frr --fail DEN-KSC@0.4 --rate 500 -v` |
-| Table VI (Mininet) | `testbed/results/summary.md` | `testbed/run_experiments.sh` (Section 6) |
+| Fig. 5 (gap sweep) | `gap.csv` | `python -m ffr experiment gap` |
+| Table IV (loops) | `loops.csv` | `python -m ffr experiment loops` |
+| Table V, Fig. 6 | `gray.csv`, `bfd_tradeoff.csv` | `python -m ffr experiment gray bfd_tradeoff` |
+| Table VI (flapping) | `flapping.csv`, `flapping_long.csv` | `python -m ffr experiment flapping flapping_long` |
+| Fig. 7, Table VII | `risk_tradeoff.csv`, `risk_dynamic.csv`, `srlg_followup.csv` | `python -m ffr experiment risk_tradeoff risk_dynamic srlg_followup` |
+| Table VIII (state) | `state.csv`, peak and link-load columns of `single_link.csv` | `python -m ffr experiment state single_link` |
+| OpenFlow 1.3 state (Sec. VI-H) | controller over TCP | Section 6.1, `testbed/fake_switches.py` |
+| Re-protection time (Sec. VI-B) | controller log | `python -m ffr run --topo abilene --app fa-frr --fail DEN-KSC@0.45 --rate 500 --stop 1.2 -v` |
+| Table IX (Mininet) | `testbed/results/summary.md` | `testbed/run_experiments.sh` (Section 6) |
 
 ### 5.4 Data, parameters and seeds
 
@@ -157,11 +160,13 @@ reads `docs/results/*.csv` and writes the paper's figures to `paper/figures/`.
   5 ms, controller computation 5 ms, rule installation 1 ms per rule,
   loss-of-signal detection 1 ms, BFD 3.3 ms × 3, 500 packets/s per flow
   (1000 in the timeline), traffic from 250 to 800 ms, first failure at 450 ms.
-* **FA-FRR parameters** (`ffr/apps/fa_frr.py`): λ = 5, risk half-life 5 s,
-  flap penalty 0.3, SRLG correlation 0.5, base hold-down 200 ms.
+* **FA-FRR parameters** (`ffr/apps/fa_frr.py`, `ffr/risk.py`): λ = 5, risk
+  half-life 5 s, flap penalty 0.3, SRLG correlation 0.5, base hold-down
+  200 ms, probability cap 0.99, coincidence window 50 ms.
 * **Seeds** (`ffr/experiments/suite.py`, Python `random.Random`): link
-  samples seed 7, SRLG pairs seed 3, sequential pairs seed 11, link failure
-  priors for the risk trade-off seed 5, BFD start phases seed 0.
+  samples seed 7, SRLG pairs seed 3, sequential pairs seed 11 (the first 10
+  for the gap sweep), link failure priors seed 5, prior-weighted failures
+  seed 13, BFD start phases seed 0, control-channel jitter seeded per run.
 
 ## 6. Real testbed (optional: Mininet + Open vSwitch)
 

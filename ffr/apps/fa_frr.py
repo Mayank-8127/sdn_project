@@ -188,8 +188,12 @@ class FailureAwareFRR(LocalFRR):
         rounds: dict[int, list[tuple[str, str]]] = {}
         for host, plans in self.plans.items():
             hsw = self.host_switch[host]
-            changed = {u: (self.installed.get((u, host)) or (None,))[0]
-                       != self.port(u, hp.primary) for u, hp in plans.items()}
+            # A switch without a group for this destination yet drops on a table
+            # miss, so it cannot be part of a loop: only next-hop *changes* are
+            # ordered (the very first installation is a single round).
+            changed = {u: (u, host) in self.installed
+                       and self.installed[(u, host)][0] != self.port(u, hp.primary)
+                       for u, hp in plans.items()}
             count = {hsw: 0}
 
             def c(u):

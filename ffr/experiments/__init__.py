@@ -36,7 +36,7 @@ COLS = {
     "gap": ["topo", "app", "gap_ms", "runs", "survival_pct", "dead_flows", "lost_pkts",
             "mean_outage_ms"],
     "flapping_long": ["pattern", "app", "runs", "survival_pct", "lost_pkts", "mean_outage_ms",
-                      "max_outage_ms", "stretch", "looped_pkts"],
+                      "max_outage_ms", "stretch", "looped_pkts", "peak_flow_entries"],
     "risk_dynamic": ["topo", "app", "runs", "survival_pct", "affected_flows", "lost_pkts",
                      "mean_outage_ms", "mean_path_delay_ms", "stretch"],
     "srlg_followup": ["topo", "app", "runs", "survival_pct", "affected_flows", "lost_pkts",

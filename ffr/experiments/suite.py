@@ -109,6 +109,7 @@ VARIANTS = {
     "fa-frr-nosrlg": ("fa-frr", {"srlg_aware": False}),
     "fa-frr-noreopt": ("fa-frr", {"reoptimize": False}),
     "fa-frr-unordered": ("fa-frr", {"ordered_update": False}),
+    "fa-frr-nopin": ("fa-frr", {"pin_backups": False}),
     "fa-frr-fixedhold": ("fa-frr", {"adaptive_holddown": False}),
     "fa-frr-nohold": ("fa-frr", {"holddown": 0.0}),
     "fa-frr-lam0": ("fa-frr", {"lam": 0.0}),
@@ -270,7 +271,8 @@ def exp_flapping(quick=False, workers=None) -> Experiment:
     def flaps(a, b):
         return [link_fail(a, b, T_FAIL + 0.08 * i, T_FAIL + 0.04 + 0.08 * i) for i in range(5)]
     cases = [vcase("abilene", v, flaps(a, b), stop=1.1, labels={"failure": f"{a}-{b}"})
-             for v in ["reactive", "frr-node", "fa-frr", "fa-frr-fixedhold", "fa-frr-nohold"]
+             for v in ["reactive", "frr-node", "fa-frr", "fa-frr-nopin", "fa-frr-fixedhold",
+                       "fa-frr-nohold"]
              for a, b in sample(links_of("abilene"), 4 if quick else None)]
     rows = run_cases(cases, workers)
     return Experiment(
@@ -360,6 +362,39 @@ def exp_timeline(quick=False, workers=None) -> Experiment:
         rows, rows, extra={"series": series, "t0_ms": (T_FAIL - 0.02) * 1000})
 
 
+def exp_loops(quick=False, workers=None) -> Experiment:
+    """Transient forwarding loops during re-optimisation, ordered vs unordered."""
+    cases = []
+    topos = ["ring6", "abilene"] if quick else ["ring6", "grid3x3", "abilene", "nsfnet"]
+    for jitter in [0.0, 0.02]:
+        for t in topos:
+            for a, b in links_of(t):
+                for restore in [None, T_FAIL + 0.2]:
+                    for v in ["reactive", "fa-frr-unordered", "fa-frr"]:
+                        cases.append(vcase(
+                            t, v, [link_fail(a, b, restore=restore)], stop=1.0,
+                            app_kw={**({"holddown": 0.05} if v != "reactive" else {}),
+                                    "ctrl_jitter": jitter, "jitter_seed": len(cases)},
+                            labels={"jitter_ms": int(1000 * jitter),
+                                    "event": "cut" if restore is None else "cut+restore",
+                                    "failure": f"{a}-{b}"}))
+    rows = run_cases(cases, workers)
+    summary = []
+    for jitter in sorted({r["jitter_ms"] for r in rows}):
+        for v in ["reactive", "fa-frr-unordered", "fa-frr"]:
+            rs = [r for r in rows if r["jitter_ms"] == jitter and r["app"] == v]
+            summary.append({"jitter_ms": jitter, "app": v, "runs": len(rs),
+                            "runs_with_loops": sum(r["looped_pkts"] > 0 for r in rs),
+                            "looped_pkts": sum(r["looped_pkts"] for r in rs),
+                            "lost_pkts": sum(r["lost"] for r in rs)})
+    return Experiment(
+        "loops", "Transient loops during updates",
+        "Every link of four topologies is cut (and, separately, cut and restored 200 ms "
+        "later, hold-down 50 ms); the controller channel has no jitter or up to 20 ms. A "
+        "packet that visits a switch twice with the same tag is counted as looped.",
+        rows, summary)
+
+
 GAPS_MS = [10, 20, 40, 60, 80, 100, 120, 150, 200, 300, 400, 500]
 GAP_T0 = 1.0  # later first failure, so that slow rule installation has finished
 GAP_VARIANTS = ["frr-node", "fa-frr", "fa-frr-unordered", "fa-frr-slowrules"]
@@ -409,8 +444,8 @@ def exp_flapping_long(quick=False, workers=None) -> Experiment:
             return [link_fail(a, b, T_FAIL + period * i, T_FAIL + period * i + down / 1000)
                     for i in range(n)]
         stop = T_FAIL + n * (down + up) / 1000 + 1.5
-        for v in ["reactive", "frr-node", "fa-frr", "fa-frr-fixedhold", "fa-frr-nohold",
-                  "fa-frr-lam0"]:
+        for v in ["reactive", "frr-node", "fa-frr", "fa-frr-nopin", "fa-frr-fixedhold",
+                  "fa-frr-nohold", "fa-frr-lam0"]:
             for a, b in sample(links_of("abilene"), 4 if quick else None):
                 cases.append(vcase("abilene", v, flaps(a, b), stop=stop,
                                    labels={"pattern": pname, "failure": f"{a}-{b}"}))
@@ -480,6 +515,7 @@ ALL = {
     "flapping": exp_flapping,
     "flapping_long": exp_flapping_long,
     "gap": exp_gap,
+    "loops": exp_loops,
     "srlg_followup": exp_srlg_followup,
     "risk_dynamic": exp_risk_dynamic,
     "state": exp_state,
