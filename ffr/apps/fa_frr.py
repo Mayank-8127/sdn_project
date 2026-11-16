@@ -13,18 +13,33 @@ that *knows how the network fails* (:class:`~ffr.risk.RiskModel`):
 3. **Re-optimisation after fast reroute.** FRR handles the first
    milliseconds; then the controller recomputes primaries *and new backups*
    on the surviving graph, so the network is protected again against a
-   second failure. Updates are make-before-break, ordered with barriers:
-   new detour rules → (barrier) → new groups → (barrier) → delete old rules.
-   New detours use fresh tags (one "generation" per re-optimisation), so
-   packets in flight on old detours are never misrouted.
+   second failure. The update is make-before-break and loop-free:
+
+   * phase 1: install the new generation's detour rules (fresh tags), then a
+     barrier on *every* switch, so that anything an older, superseded update
+     sent has also been applied;
+   * phase 2: rewrite the fast-failover groups level by level, starting at
+     the switches next to each destination and moving outwards along the new
+     primary tree, with a barrier between levels. A switch only switches to
+     its new next hop once that next hop already forwards on the new tree, so
+     no packet can loop between old and new next hops;
+   * phase 3: after a drain time (the longest old detour), delete the old
+     generation's detour rules by cookie.
+
+   Before all that, as soon as a failure is reported, the groups next to the
+   failed link are rewritten to their backup bucket only ("pinning"), so a
+   link that comes back during re-optimisation cannot pull traffic back.
 4. **Flap damping.** A link that comes back up is not used again until it
    has stayed up for a hold-down time that grows with its recent
-   instability. Plain FRR is revertive: every flap costs a new outage.
-5. **Learning.** Every failure raises the link's (and its SRLG siblings')
+   instability. Plain FRR is revertive: every flap costs a new outage. If a
+   destination would become unreachable without a held-down link, the link
+   is released early.
+5. **Learning.** Every failure raises the link's (and its SRLG peers')
    failure probability, decaying over time, which feeds back into 1 and 2.
 
 Each feature can be switched off (``risk_aware``, ``srlg_aware``,
-``reoptimize``, ``holddown=0``) to measure its contribution (ablation).
+``reoptimize``, ``holddown=0``, ``adaptive_holddown``, ``ordered_update``)
+to measure its contribution (ablation).
 """
 
 from __future__ import annotations
@@ -32,7 +47,7 @@ from __future__ import annotations
 from ..openflow import Bucket, Group, Match, Output, PopTag, SetTag
 from ..protection import Element, HopPlan, plan_destination
 from ..risk import RiskModel
-from ..routing import Edge, edge
+from ..routing import Edge, edge, next_hops_to
 from .frr import PRIO_DETOUR, LocalFRR
 from .static import PRIMARY, PRIO_PRIMARY
 
@@ -46,20 +61,31 @@ class FailureAwareFRR(LocalFRR):
     def __init__(self, net, lam: float = 5.0, half_life: float = 5.0,
                  flap_penalty: float = 0.3, correlation: float = 0.5,
                  holddown: float = 0.2, risk_aware: bool = True, srlg_aware: bool = True,
-                 reoptimize: bool = True, **kw):
+                 reoptimize: bool = True, adaptive_holddown: bool = True,
+                 ordered_update: bool = True, pin_backups: bool = True,
+                 p_max: float = 0.99, **kw):
         super().__init__(net, **kw)
-        self.risk = RiskModel(net.topo, half_life, flap_penalty, correlation)
+        self.risk = RiskModel(net.topo, half_life, flap_penalty, correlation, p_max)
         self.lam = lam
         self.base_holddown = holddown
+        self.adaptive_holddown = adaptive_holddown
         self.risk_aware = risk_aware
         self.srlg_aware = srlg_aware
         self.reopt_enabled = reoptimize
+        self.ordered_update = ordered_update
+        self.pin_backups = pin_backups
+        self.pinned = 0
         self.generation = 0
         self.gen_switches: dict[int, set[str]] = {}
+        self.gen_drain: dict[int, float] = {}       # longest detour delay per generation
         self.held: dict[Edge, object] = {}  # recovered links in hold-down -> timer
+        self.installed: dict[tuple[str, str], tuple] = {}  # (switch, host) -> group content
         self._reopt_pending = False
         self._primary_done: set[tuple[str, str]] = set()
         self.reoptimizations = 0
+        self.holddown_overrides = 0
+        self.update_rounds = 0
+        self.protected_at: dict[int, float] = {}  # generation -> time its groups were all in place
 
     # -- planning ----------------------------------------------------------------
     def _weight(self):
@@ -90,23 +116,42 @@ class FailureAwareFRR(LocalFRR):
         # following the old rules until those are deleted
         return super().tag_for((key, self.generation))
 
+    def _release_held_if_needed(self) -> None:
+        """Release held-down links if some destination needs them to be reachable."""
+        if not self.held:
+            return
+        for hsw in sorted(set(self.host_switch.values())):
+            without = next_hops_to(self.graph, hsw, excluded_edges=self.unusable())
+            with_held = next_hops_to(self.graph, hsw, excluded_edges=set(self.down_links))
+            if len(with_held) > len(without):
+                for e, timer in sorted(self.held.items(), key=lambda kv: sorted(kv[0])):
+                    timer.cancel()
+                    self.note(f"link {'-'.join(sorted(e))}: hold-down overridden (needed for reachability)")
+                self.held.clear()
+                self.holddown_overrides += 1
+                return
+
     # -- installation (make-before-break) ----------------------------------------------
     def install_all_routes(self) -> None:
         self.reoptimize()
 
     def reoptimize(self) -> None:
         self._reopt_pending = False
+        self._release_held_if_needed()
         self.generation += 1
         self.reoptimizations += 1
         gen = self.generation
         cookie = DETOUR_BASE + gen
         self.plans = {h: self.plan(h, s) for h, s in sorted(self.host_switch.items())}
         touched: set[str] = set()
+        drain = 0.0
         for host, plans in self.plans.items():
             rules: dict[tuple[str, int], str] = {}
             for u, hp in sorted(plans.items()):
                 if hp.protected:
                     t = self.tag_for(hp.tag_key)
+                    drain = max(drain, sum(self.graph.weight(a, b)
+                                           for a, b in zip(hp.detour, hp.detour[1:])))
                     for x, y in zip(hp.detour[1:-1], hp.detour[2:]):
                         prev = rules.setdefault((x, t), y)
                         assert prev == y, "inconsistent detours"
@@ -115,59 +160,158 @@ class FailureAwareFRR(LocalFRR):
                              PRIO_DETOUR, cookie)
                 touched.add(x)
         self.gen_switches[gen] = touched
+        self.gen_drain[gen] = drain
         self.note(f"reoptimize gen={gen}: unusable={sorted('-'.join(sorted(e)) for e in self.unusable())}")
-        # phase 2 only once every new detour rule is in place
-        self.barrier(touched, lambda: self._switch_groups(gen))
+        # Phase 2 starts once every new detour rule is in place *and* every
+        # message of an older (possibly superseded) update has been applied.
+        self.barrier(set(self.net.switches), lambda: self._switch_groups(gen))
+
+    def _group_content(self, u: str, host: str, hp: HopPlan) -> tuple:
+        p = self.port(u, hp.primary)
+        if hp.protected:
+            return (p, self.port(u, hp.detour[1]), self.tag_for(hp.tag_key))
+        return (p, None, None)
+
+    def _levels(self) -> list[list[tuple[str, str]]]:
+        """(switch, host) group updates grouped into loop-free update rounds.
+
+        A group whose primary next hop does not change can be rewritten at
+        any time (only its backup changes), so it goes in the first round.
+        A switch whose next hop changes goes in round k = the number of
+        switches with a changed next hop on its *new* primary path to the
+        destination, itself included. So every changed switch downstream of
+        it on the new path has already switched when it does, and the
+        unchanged ones forward the same way in the old and new trees: a packet
+        that reaches a switched node follows the new tree to the destination,
+        and one that does not follows old-tree edges, which also cannot loop.
+        """
+        rounds: dict[int, list[tuple[str, str]]] = {}
+        for host, plans in self.plans.items():
+            hsw = self.host_switch[host]
+            changed = {u: (self.installed.get((u, host)) or (None,))[0]
+                       != self.port(u, hp.primary) for u, hp in plans.items()}
+            count = {hsw: 0}
+
+            def c(u):
+                if u not in count:
+                    count[u] = changed[u] + c(plans[u].primary)
+                return count[u]
+
+            for u in sorted(plans):
+                k = c(u) if (changed[u] and self.ordered_update) else 1
+                rounds.setdefault(k, []).append((u, host))
+        return [rounds[k] for k in sorted(rounds)]
 
     def _switch_groups(self, gen: int) -> None:
         if gen != self.generation:
             return  # superseded by a newer re-optimisation
-        for host, plans in self.plans.items():
+        for host in self.plans:
             hsw = self.host_switch[host]
             if (hsw, host) not in self._primary_done:
                 self.install(hsw, Match(dst=host), [PopTag(), Output(self.port(hsw, host))],
                              PRIO_PRIMARY, PRIMARY)
                 self._primary_done.add((hsw, host))
-            for u, hp in sorted(plans.items()):
-                p = self.port(u, hp.primary)
-                buckets = [Bucket((Output(p),), watch_port=p)]
-                if hp.protected:
-                    q = self.port(u, hp.detour[1])
-                    buckets.append(Bucket((SetTag(self.tag_for(hp.tag_key)), Output(q)),
-                                          watch_port=q))
-                gid = self.gid_for(u, host)
-                self.install_group(u, gid, buckets)
-                if (u, host) not in self._primary_done:
-                    self.install(u, Match(dst=host), [Group(gid)], PRIO_PRIMARY, PRIMARY)
-                    self._primary_done.add((u, host))
-        self.barrier(set(self.net.switches), lambda: self._cleanup(gen))
+        self._run_rounds(gen, self._levels())
+
+    def _run_rounds(self, gen: int, rounds: list) -> None:
+        if gen != self.generation:
+            return
+        if not rounds:
+            if self.ordered_update:
+                # every round ended with a barrier: all groups are confirmed
+                self._protected(gen)
+            else:
+                self.barrier(set(self.net.switches), lambda: self._protected(gen))
+            return
+        self.update_rounds += 1
+        touched = set()
+        for u, host in rounds[0]:
+            hp = self.plans[host][u]
+            content = self._group_content(u, host, hp)
+            p, q, t = content
+            buckets = [Bucket((Output(p),), watch_port=p)]
+            if q is not None:
+                buckets.append(Bucket((SetTag(t), Output(q)), watch_port=q))
+            gid = self.gid_for(u, host)
+            self.install_group(u, gid, buckets)
+            if (u, host) not in self._primary_done:
+                self.install(u, Match(dst=host), [Group(gid)], PRIO_PRIMARY, PRIMARY)
+                self._primary_done.add((u, host))
+            self.installed[(u, host)] = content
+            touched.add(u)
+        rest = rounds[1:]
+        if self.ordered_update:
+            self.barrier(touched, lambda: self._run_rounds(gen, rest))
+        else:
+            self._run_rounds(gen, rest)
+
+    def _protected(self, gen: int) -> None:
+        if gen != self.generation:
+            return
+        self.protected_at[gen] = self.sim.now
+        self.note(f"gen={gen} groups installed: network protected again")
+        # phase 3, once packets already on an old detour have reached their destination
+        drain = max((self.gen_drain.get(g, 0.0) for g in self.gen_switches if g < gen),
+                    default=0.0)
+        self.sim.schedule(drain, self._cleanup, gen)
 
     def _cleanup(self, gen: int) -> None:
+        if gen != self.generation:
+            return  # a newer generation will clean up (it also deletes ours)
         for old in sorted(g for g in self.gen_switches if g < gen):
             for sw in sorted(self.gen_switches.pop(old)):
                 self.remove(sw, cookie=DETOUR_BASE + old)
+            self.gen_drain.pop(old, None)
         self.note(f"gen={gen} active")
 
     # -- reacting to failures ------------------------------------------------------------
     def on_link_change(self, e: Edge, live: bool) -> None:
         now = self.sim.now
         if not live:
-            self.risk.record_failure(e, now)
+            self.risk.record_failure(e, now, down=self.down_links)
             timer = self.held.pop(e, None)
             if timer is not None:
-                # Failed again while on probation. The link carries no traffic
-                # (it is excluded from every plan), so nothing to recompute.
+                # Failed again while on probation (its hold-down release timer
+                # is cancelled). The link itself carries no traffic, but its
+                # SRLG peers just became riskier: re-plan if that can matter.
                 timer.cancel()
                 self.note(f"link {'-'.join(sorted(e))} flapped during hold-down")
+                peers_in_use = self.risk.shared_risk(e) - self.unusable()
+                if peers_in_use and self.risk_aware and self.lam > 0 and self.risk.correlation > 0:
+                    self._schedule_reopt()
                 return
+            self._pin_backups(e)
             self._schedule_reopt()
         else:
-            hd = self.risk.holddown(e, now, self.base_holddown)
+            if self.adaptive_holddown:
+                hd = self.risk.holddown(e, now, self.base_holddown)
+            else:
+                hd = self.base_holddown
             if hd <= 0:
                 self._schedule_reopt()
                 return
             self.held[e] = self.sim.schedule(hd, self._release, e)
             self.note(f"link {'-'.join(sorted(e))} up: hold-down {1000 * hd:.0f} ms")
+
+    def _pin_backups(self, e: Edge) -> None:
+        """Make the backups of the two switches next to a failed link sticky.
+
+        Their fast-failover groups already send traffic to the backup, but FF
+        groups are revertive: if the link comes back before re-optimisation
+        has rewritten them, traffic would return to the unstable link. So,
+        right away, the controller rewrites those groups with the backup
+        bucket only (a few messages to two switches). Packets were already on
+        that backup, so this changes nothing else.
+        """
+        if not self.pin_backups:
+            return
+        a, b = sorted(e)
+        for (u, host), (p, q, t) in sorted(self.installed.items()):
+            if q is None or u not in (a, b) or p != self.port(u, b if u == a else a):
+                continue
+            self.install_group(u, self.gid_for(u, host), [Bucket((SetTag(t), Output(q)),
+                                                                 watch_port=q)])
+            self.pinned += 1
 
     def _release(self, e: Edge) -> None:
         if self.held.pop(e, None) is not None and e not in self.down_links:

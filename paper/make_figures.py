@@ -28,9 +28,16 @@ from ffr.experiments.suite import aggregate  # noqa: E402
 RES = ROOT / "docs" / "results"
 OUT = HERE / "figures"
 INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e4e3df"
-APPS = ["reactive", "frr-node", "e2e", "fa-frr"]
-LABEL = {"reactive": "Reactive", "frr-node": "Local FRR (node)", "e2e": "End-to-end",
-         "fa-frr": "FA-FRR (proposed)"}
+APPS = ["reactive", "frr-node", "frr-srlg", "e2e", "fa-frr"]
+LABEL = {"reactive": "Reactive", "frr-node": "Local FRR (node)",
+         "frr-srlg": "Local FRR (node+SRLG)", "e2e": "End-to-end",
+         "fa-frr": "FA-FRR (proposed)", "fa-frr-unordered": "FA-FRR, unordered update",
+         "fa-frr-slowrules": "FA-FRR, 5 ms per rule"}
+COLOR = dict(APP_COLOR)
+COLOR["frr-srlg"] = "#4a3aa7"
+COLOR["fa-frr-unordered"] = "#1baf7a"
+COLOR["fa-frr-slowrules"] = "#52514e"
+TOPOS = [("abilene", "Abilene"), ("nsfnet", "NSFNET"), ("grid5x5", "Grid 5x5")]
 
 plt.rcParams.update({
     "font.family": "serif", "font.size": 8, "axes.edgecolor": MUTED, "axes.labelcolor": INK,
@@ -71,11 +78,11 @@ def summaries():
     return out
 
 
-def grouped(metric, ylabel, fname, ylim=None):
+def grouped(metric, ylabel, fname, ylim=None, log=False):
     S = summaries()
-    fig, axes = plt.subplots(1, 2, figsize=(7.0, 2.1), sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=(7.0, 2.1), sharey=True)
     w = 0.8 / len(APPS)
-    for ax, topo, title in zip(axes, ("abilene", "nsfnet"), ("Abilene", "NSFNET")):
+    for ax, (topo, title) in zip(axes, TOPOS):
         for i, app in enumerate(APPS):
             xs, ys = [], []
             for j, (key, _) in enumerate(SCEN):
@@ -83,13 +90,15 @@ def grouped(metric, ylabel, fname, ylim=None):
                 if r is not None and isinstance(r[metric], float):
                     xs.append(j - 0.4 + w * (i + 0.5))
                     ys.append(r[metric])
-            ax.bar(xs, ys, w * 0.9, color=APP_COLOR[app], label=LABEL[app])
-        ax.set_xticks(range(len(SCEN)), [s for _, s in SCEN])
+            ax.bar(xs, ys, w * 0.9, color=COLOR[app], label=LABEL[app])
+        ax.set_xticks(range(len(SCEN)), [s for _, s in SCEN], fontsize=6.5)
         ax.set_title(title, fontsize=8.5, color=INK)
         if ylim:
             ax.set_ylim(*ylim)
+        if log:
+            ax.set_yscale("log")
     axes[0].set_ylabel(ylabel)
-    axes[0].legend(ncol=4, loc="lower left", bbox_to_anchor=(0.0, 1.12), fontsize=7.5)
+    axes[0].legend(ncol=5, loc="lower left", bbox_to_anchor=(0.0, 1.12), fontsize=7)
     fig.savefig(OUT / fname)
     plt.close(fig)
 
@@ -138,10 +147,32 @@ def risk():
     plt.close(fig)
 
 
+def gap():
+    rows = load("gap")
+    S = {(r["topo"], r["app"], r["gap_ms"]): r for r in aggregate(rows, by=("topo", "app", "gap_ms"))}
+    variants = ["frr-node", "fa-frr-unordered", "fa-frr", "fa-frr-slowrules"]
+    fig, axes = plt.subplots(1, 2, figsize=(3.5, 1.9), sharey=True)
+    for ax, (topo, title) in zip(axes, TOPOS[:2]):
+        for v in variants:
+            gs = sorted(g for (t, a, g) in S if t == topo and a == v)
+            ax.plot(gs, [S[(topo, v, g)]["lost_pkts"] for g in gs], "-o", ms=2.5, lw=1.3,
+                    color=COLOR[v], label=LABEL[v])
+        ax.set_yscale("log")
+        ax.set_xlabel("Gap between failures (ms)")
+        ax.set_title(title, fontsize=8, color=INK)
+        ax.grid(True, axis="both")
+    axes[0].set_ylabel("Packets lost per run")
+    axes[0].legend(ncol=2, loc="lower left", bbox_to_anchor=(-0.25, 1.12), fontsize=6.3)
+    fig.tight_layout(w_pad=0.6)
+    fig.savefig(OUT / "fig_gap.pdf")
+    plt.close(fig)
+
+
 def main():
     OUT.mkdir(exist_ok=True)
     grouped("survival_pct", "Runs with no lost flow (%)", "fig_survival.pdf", (0, 105))
-    grouped("mean_outage_ms", "Mean outage (ms)", "fig_outage.pdf")
+    grouped("lost_pkts", "Packets lost per run", "fig_lost.pdf", log=True)
+    gap()
     bfd()
     risk()
     shutil.copy(RES / "timeline.png", OUT / "fig_timeline.png")

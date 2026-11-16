@@ -71,8 +71,10 @@ def test_flapping_link_returns_only_after_growing_hold_down(risk_aware):
     # after 5 failures the hold-down is ~0.2 * (1 + 5) s, counted from the
     # last repair at 0.76 s
     assert 1.8 < released[0] < 2.0
-    # only the first flap triggers a re-optimisation
-    assert sc.ctrl.reoptimizations == 3  # initial + first failure + release
+    # initial + first failure + release; with risk-aware routing each later
+    # flap (during hold-down) also re-plans, because it makes the link's SRLG
+    # peer SNV-DEN riskier and that peer carries traffic
+    assert sc.ctrl.reoptimizations == (3 + 4 if risk_aware else 3)
     if risk_aware:
         assert f.hops[-1] == 6  # still distrusted: its learned risk is high
     else:

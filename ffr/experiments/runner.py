@@ -35,6 +35,8 @@ class Case:
     stop: float = 0.8
     exclude_hosts: list = field(default_factory=list)
     labels: dict = field(default_factory=dict)  # extra columns copied to the row
+    name: str | None = None  # reported as "app" (e.g. an ablation variant); default: app
+    priors: dict | None = None  # {(a, b): failure prior} for the topology's links
 
 
 def build_topology(case: Case):
@@ -43,6 +45,8 @@ def build_topology(case: Case):
         topo.add_srlg(name, *links)
     if case.length_risk:
         topo.set_length_risk(per_ms=case.length_risk)
+    for (a, b), prob in (case.priors or {}).items():
+        topo.link(a, b).fail_prob = prob
     return topo
 
 
@@ -80,9 +84,21 @@ def run_case(case: Case) -> dict:
             stretches.append(f.hops[-1] / len(sp))
     outages = sorted(f.outage() for f in sc.tm.affected() if f.outage() != math.inf)
 
+    # link load: flows per switch-switch link on the path of each flow's first
+    # and last delivered packet (before the failure / after recovery)
+    def max_load(attr):
+        load: dict[frozenset, int] = {}
+        for f in sc.tm.flows.values():
+            path = getattr(f, attr)
+            if path:
+                for a, b in zip(path, path[1:]):
+                    k = frozenset((a, b))
+                    load[k] = load.get(k, 0) + 1
+        return max(load.values(), default=0)
+
     row = dict(case.labels)
     row.update(
-        topo=case.topo, app=case.app, sent=res.sent, lost=res.lost,
+        topo=case.topo, app=case.name or case.app, sent=res.sent, lost=res.lost,
         loss_pct=100.0 * res.lost / max(1, res.sent), flows=res.flows,
         affected=res.affected, never_recovered=res.broken,
         # outage statistics over flows that recovered; None if none did
@@ -92,6 +108,14 @@ def run_case(case: Case) -> dict:
         stretch=(sum(stretches) / len(stretches)) if stretches else 1.0,
         ctrl_msgs=res.ctrl_msgs, flow_entries=res.flow_entries,
         group_entries=res.group_entries, probe_pkts=res.probe_pkts,
+        peak_flow_entries=sc.net.occupancy["flows_peak"],
+        peak_group_entries=sc.net.occupancy["groups_peak"],
+        loop_drops=sum(s.stats["ttl"] for s in sc.net.switches.values()),
+        looped_pkts=sum(s.stats["looped"] for s in sc.net.switches.values()),
+        max_link_flows_before=max_load("first_path"), max_link_flows_after=max_load("last_path"),
+        reoptimizations=getattr(sc.ctrl, "reoptimizations", 0),
+        mean_path_delay_ms=1000 * sum(f.delays[0] for f in sc.tm.flows.values() if f.delays)
+        / max(1, sum(1 for f in sc.tm.flows.values() if f.delays)),
         wall_s=round(time.perf_counter() - t0, 3),
     )
     return row

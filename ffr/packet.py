@@ -34,10 +34,16 @@ class Packet:
     created: float = 0.0
     payload: Any = None
     trace: list[str] = field(default_factory=list)
+    # (switch, tag) pairs already visited: seeing one twice means a loop (a
+    # fast-reroute U-turn revisits a switch with a *different* tag, so it is
+    # not counted)
+    visited: set = field(default_factory=set)
+    looped: bool = False
 
     def copy(self) -> "Packet":
         """Independent copy (used when one packet is sent out of several ports)."""
         return Packet(
             self.src, self.dst, self.flow_id, self.seq, self.kind, self.tag,
-            self.ttl, self.created, self.payload, list(self.trace),
+            self.ttl, self.created, self.payload, list(self.trace), set(self.visited),
+            self.looped,
         )

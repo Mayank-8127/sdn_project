@@ -164,7 +164,10 @@ class Switch:
         self.rule_install_time = rule_install_time
         self._busy_until = 0.0
         self.stats = {"rx": 0, "tx": 0, "miss": 0, "ttl": 0, "dead": 0, "no_port": 0,
-                      "rules_installed": 0, "group_drop": 0}
+                      "rules_installed": 0, "group_drop": 0, "looped": 0}
+        # Network-wide table-occupancy counters (set by Network): current and
+        # peak number of flow and group entries over all switches.
+        self.occupancy: dict[str, int] | None = None
         # Local agents handling control packets addressed to the switch itself
         # (e.g. BFD hellos, LLDP probes), by packet kind.
         self.agents: dict[str, Callable[[Packet, int], None]] = {}
@@ -188,6 +191,13 @@ class Switch:
             self.stats["ttl"] += 1
             return
         pkt.trace.append(self.name)
+        key = (self.name, pkt.tag)
+        if key in pkt.visited:
+            if not pkt.looped:
+                pkt.looped = True
+                self.stats["looped"] += 1   # counted once per packet
+        else:
+            pkt.visited.add(key)
         self.process(pkt, in_port)
 
     def process(self, pkt: Packet, in_port: int | None) -> None:
@@ -200,9 +210,11 @@ class Switch:
 
     def execute(self, pkt: Packet, actions, in_port: int | None) -> None:
         """Apply an action list in order (OpenFlow "apply-actions")."""
-        for act in actions:
+        last = len(actions) - 1
+        for i, act in enumerate(actions):
             if isinstance(act, Output):
-                self.output(pkt.copy(), act.port)
+                # copy only if later actions may still change this packet
+                self.output(pkt if i == last else pkt.copy(), act.port)
             elif isinstance(act, SetTag):
                 pkt.tag = act.tag
             elif isinstance(act, PopTag):
@@ -281,6 +293,16 @@ class Switch:
     def _apply(self, msg) -> None:
         if not self.alive:
             return
+        n_flows, n_groups = len(self.table), len(self.groups)
+        self._apply_msg(msg)
+        occ = self.occupancy
+        if occ is not None:
+            occ["flows"] += len(self.table) - n_flows
+            occ["groups"] += len(self.groups) - n_groups
+            occ["flows_peak"] = max(occ["flows_peak"], occ["flows"])
+            occ["groups_peak"] = max(occ["groups_peak"], occ["groups"])
+
+    def _apply_msg(self, msg) -> None:
         self.stats["rules_installed"] += 1
         if isinstance(msg, FlowMod):
             if msg.command == "add":
@@ -337,6 +359,9 @@ class Network:
         self.sim = sim or Simulator()
         self.switches: dict[str, Switch] = {
             s: Switch(self.sim, s, rule_install_time) for s in topo.switches}
+        self.occupancy = {"flows": 0, "groups": 0, "flows_peak": 0, "groups_peak": 0}
+        for sw in self.switches.values():
+            sw.occupancy = self.occupancy
         self.hosts: dict[str, Host] = {}
         self.links: dict[frozenset, Link] = {}
         self.host_links: dict[str, Link] = {}

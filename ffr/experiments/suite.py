@@ -86,16 +86,51 @@ def aggregate(rows, by=("topo", "app")) -> list[dict]:
             "groups": round(sum(r["group_entries"] for r in rs) / n),
             "ctrl_msgs": round(sum(r["ctrl_msgs"] for r in rs) / n),
             "probe_pkts": round(sum(r["probe_pkts"] for r in rs) / n),
+            "affected_flows": round(sum(r["affected"] for r in rs) / n, 2),
+            "peak_flow_entries": round(sum(r.get("peak_flow_entries", 0) for r in rs) / n),
+            "looped_pkts": round(sum(r.get("looped_pkts", 0) for r in rs) / n, 2),
+            "max_link_flows_before": round(sum(r.get("max_link_flows_before", 0) for r in rs) / n, 1),
+            "max_link_flows_after": round(sum(r.get("max_link_flows_after", 0) for r in rs) / n, 1),
+            "mean_path_delay_ms": round(sum(r.get("mean_path_delay_ms", 0) for r in rs) / n, 3),
         })
     return out
 
 
+# Strategy variants: (reported name, app, app options). The fa-frr-* entries
+# are ablations that switch off one FA-FRR mechanism each.
+VARIANTS = {
+    "reactive": ("reactive", {}),
+    "frr-link": ("frr-link", {}),
+    "frr-node": ("frr-node", {}),
+    "frr-srlg": ("frr-srlg", {}),
+    "e2e": ("e2e", {}),
+    "e2e-srlg": ("e2e-srlg", {}),
+    "fa-frr": ("fa-frr", {}),
+    "fa-frr-nosrlg": ("fa-frr", {"srlg_aware": False}),
+    "fa-frr-noreopt": ("fa-frr", {"reoptimize": False}),
+    "fa-frr-unordered": ("fa-frr", {"ordered_update": False}),
+    "fa-frr-fixedhold": ("fa-frr", {"adaptive_holddown": False}),
+    "fa-frr-nohold": ("fa-frr", {"holddown": 0.0}),
+    "fa-frr-lam0": ("fa-frr", {"lam": 0.0}),
+    "fa-frr-lam20": ("fa-frr", {"lam": 20.0}),
+}
+
+
+def vcase(topo, variant, failures, **kw) -> Case:
+    app, opts = VARIANTS[variant]
+    app_kw = {**opts, **kw.pop("app_kw", {})}
+    return Case(topo, app, failures, app_kw=app_kw, name=variant, **kw)
+
+
 # ------------------------------------------------------------- experiments
+MAIN_TOPOS = ["abilene", "nsfnet", "grid5x5"]
+
+
 def exp_single_link(quick=False, workers=None) -> Experiment:
-    topos = ["abilene"] if quick else ["abilene", "nsfnet"]
+    topos = ["abilene"] if quick else MAIN_TOPOS
     cases = [Case(t, app, [link_fail(a, b)], labels={"failure": f"{a}-{b}"})
              for t in topos for app in APPS
-             for a, b in sample(links_of(t), 4 if quick else None)]
+             for a, b in sample(links_of(t), 4 if quick else (None if t != "grid5x5" else 20))]
     rows = run_cases(cases, workers)
     return Experiment(
         "single_link", "Single link failures",
@@ -187,17 +222,18 @@ def srlg_pairs(topo_name: str, k: int | None, seed: int = 3):
 
 
 SRLG_APPS = ["reactive", "frr-node", "e2e", "fa-frr"]
+SRLG_VARIANTS = ["reactive", "frr-node", "frr-srlg", "e2e", "e2e-srlg", "fa-frr", "fa-frr-nosrlg"]
 
 
 def exp_srlg(quick=False, workers=None) -> Experiment:
-    topos = ["abilene"] if quick else ["abilene", "nsfnet"]
+    topos = ["abilene"] if quick else MAIN_TOPOS
     cases = []
     for t in topos:
         for l1, l2 in srlg_pairs(t, 4 if quick else 15):
-            for app in SRLG_APPS:
-                cases.append(Case(t, app, [link_fail(*l1), link_fail(*l2)],
-                                  srlgs=[("duct", [l1, l2])],
-                                  labels={"failure": f"{'-'.join(l1)}+{'-'.join(l2)}"}))
+            for v in SRLG_VARIANTS:
+                cases.append(vcase(t, v, [link_fail(*l1), link_fail(*l2)],
+                                   srlgs=[("duct", [l1, l2])],
+                                   labels={"failure": f"{'-'.join(l1)}+{'-'.join(l2)}"}))
     rows = run_cases(cases, workers)
     return Experiment(
         "srlg", "Correlated (SRLG) double failures",
@@ -205,17 +241,24 @@ def exp_srlg(quick=False, workers=None) -> Experiment:
         "instant.", rows, aggregate(rows))
 
 
+SEQ_VARIANTS = ["reactive", "frr-node", "e2e", "fa-frr", "fa-frr-noreopt"]
+
+
+def sequential_pairs(t: str, k: int | None):
+    pairs = [(l1, l2) for l1, l2 in itertools.permutations(links_of(t), 2)
+             if connected_without(t, edges=[frozenset(l1), frozenset(l2)])]
+    return sample(pairs, k, seed=11)
+
+
 def exp_sequential(quick=False, workers=None) -> Experiment:
-    topos = ["abilene"] if quick else ["abilene", "nsfnet"]
+    topos = ["abilene"] if quick else MAIN_TOPOS
     cases = []
     for t in topos:
-        pairs = [(l1, l2) for l1, l2 in itertools.permutations(links_of(t), 2)
-                 if connected_without(t, edges=[frozenset(l1), frozenset(l2)])]
-        for l1, l2 in sample(pairs, 4 if quick else 20, seed=11):
-            for app in SRLG_APPS:
-                cases.append(Case(t, app, [link_fail(*l1), link_fail(*l2, t=T_FAIL + 0.2)],
-                                  stop=1.0,
-                                  labels={"failure": f"{'-'.join(l1)} then {'-'.join(l2)}"}))
+        for l1, l2 in sequential_pairs(t, 4 if quick else 20):
+            for v in SEQ_VARIANTS:
+                cases.append(vcase(t, v, [link_fail(*l1), link_fail(*l2, t=T_FAIL + 0.2)],
+                                   stop=1.0,
+                                   labels={"failure": f"{'-'.join(l1)} then {'-'.join(l2)}"}))
     rows = run_cases(cases, workers)
     return Experiment(
         "sequential", "Sequential double failures",
@@ -226,8 +269,8 @@ def exp_sequential(quick=False, workers=None) -> Experiment:
 def exp_flapping(quick=False, workers=None) -> Experiment:
     def flaps(a, b):
         return [link_fail(a, b, T_FAIL + 0.08 * i, T_FAIL + 0.04 + 0.08 * i) for i in range(5)]
-    cases = [Case("abilene", app, flaps(a, b), stop=1.1, labels={"failure": f"{a}-{b}"})
-             for app in ["reactive", "frr-node", "fa-frr"]
+    cases = [vcase("abilene", v, flaps(a, b), stop=1.1, labels={"failure": f"{a}-{b}"})
+             for v in ["reactive", "frr-node", "fa-frr", "fa-frr-fixedhold", "fa-frr-nohold"]
              for a, b in sample(links_of("abilene"), 4 if quick else None)]
     rows = run_cases(cases, workers)
     return Experiment(
@@ -317,6 +360,115 @@ def exp_timeline(quick=False, workers=None) -> Experiment:
         rows, rows, extra={"series": series, "t0_ms": (T_FAIL - 0.02) * 1000})
 
 
+GAPS_MS = [10, 20, 40, 60, 80, 100, 120, 150, 200, 300, 400, 500]
+GAP_T0 = 1.0  # later first failure, so that slow rule installation has finished
+GAP_VARIANTS = ["frr-node", "fa-frr", "fa-frr-unordered", "fa-frr-slowrules"]
+
+
+def exp_gap(quick=False, workers=None) -> Experiment:
+    """Sequential double failures with the second failure 10-200 ms after the first."""
+    gaps = [20, 100, 200] if quick else GAPS_MS
+    topos = ["abilene"] if quick else ["abilene", "nsfnet"]
+    cases = []
+    for t in topos:
+        for l1, l2 in sequential_pairs(t, 3 if quick else 10):
+            for g in gaps:
+                for v in GAP_VARIANTS:
+                    net_kw = {}
+                    if v == "fa-frr-slowrules":  # 5 ms per rule instead of 1 ms
+                        vv, net_kw = "fa-frr", {"rule_install_time": 0.005}
+                    else:
+                        vv = v
+                    c = vcase(t, vv, [link_fail(*l1, t=GAP_T0),
+                                      link_fail(*l2, t=GAP_T0 + g / 1000)],
+                              start=0.8, stop=2.5, net_kw=net_kw,
+                              labels={"gap_ms": g, "failure": f"{'-'.join(l1)} then {'-'.join(l2)}"})
+                    c.name = v
+                    cases.append(c)
+    rows = run_cases(cases, workers)
+    return Experiment(
+        "gap", "Time between two failures",
+        "A second, independent link fails 10-500 ms after the first (first failure at 1 s, "
+        "traffic 0.8-2.5 s). fa-frr-slowrules installs each rule in 5 ms instead of 1 ms.",
+        rows, aggregate(rows, by=("topo", "app", "gap_ms")))
+
+
+FLAP_PATTERNS = {
+    # name: (down ms, up ms, flaps)
+    "fast (40/40 ms)": (40, 40, 5),
+    "slow (40/300 ms)": (40, 300, 5),
+}
+
+
+def exp_flapping_long(quick=False, workers=None) -> Experiment:
+    """Flapping links over several seconds, so that hold-downs expire."""
+    cases = []
+    for pname, (down, up, n) in FLAP_PATTERNS.items():
+        def flaps(a, b):
+            period = (down + up) / 1000
+            return [link_fail(a, b, T_FAIL + period * i, T_FAIL + period * i + down / 1000)
+                    for i in range(n)]
+        stop = T_FAIL + n * (down + up) / 1000 + 1.5
+        for v in ["reactive", "frr-node", "fa-frr", "fa-frr-fixedhold", "fa-frr-nohold",
+                  "fa-frr-lam0"]:
+            for a, b in sample(links_of("abilene"), 4 if quick else None):
+                cases.append(vcase("abilene", v, flaps(a, b), stop=stop,
+                                   labels={"pattern": pname, "failure": f"{a}-{b}"}))
+    rows = run_cases(cases, workers)
+    return Experiment(
+        "flapping_long", "Flapping links over several seconds",
+        "A link flaps five times, then stays up; traffic runs 1.5 s past the last flap so that "
+        "hold-downs expire. Fixed hold-down uses 200 ms after every flap; adaptive grows "
+        "with the link's recent instability.",
+        rows, aggregate(rows, by=("pattern", "app")))
+
+
+def heterogeneous_priors(topo_name: str, seed: int = 5) -> dict:
+    """The seeded link failure priors also used by the analytic risk study."""
+    rng = random.Random(seed)
+    return {tuple(sorted(l.key)): rng.choice([0.005, 0.005, 0.01, 0.02, 0.05, 0.15])
+            for l in T.get(topo_name).links}
+
+
+def exp_risk_dynamic(quick=False, workers=None) -> Experiment:
+    """Risk-aware primaries in simulation: links fail in proportion to their prior."""
+    cases = []
+    for t in (["abilene"] if quick else ["abilene", "nsfnet"]):
+        priors = heterogeneous_priors(t)
+        links = sorted(priors)
+        rng = random.Random(13)
+        failures = rng.choices(links, weights=[priors[l] for l in links], k=6 if quick else 30)
+        for i, (a, b) in enumerate(failures):
+            for v in ["fa-frr-lam0", "fa-frr", "fa-frr-lam20"]:
+                cases.append(vcase(t, v, [link_fail(a, b)], priors=priors,
+                                   labels={"failure": f"{i}:{a}-{b}"}))
+    rows = run_cases(cases, workers)
+    return Experiment(
+        "risk_dynamic", "Risk-aware primaries under failures drawn from the priors",
+        "Heterogeneous priors (0.5-15 %, seed 5); 30 link failures per topology drawn with "
+        "probability proportional to the prior (seed 13). lam=0 routes on delay only.",
+        rows, aggregate(rows))
+
+
+def exp_srlg_followup(quick=False, workers=None) -> Experiment:
+    """One link of an SRLG fails, its peer follows 200 ms later."""
+    topos = ["abilene"] if quick else ["abilene", "nsfnet"]
+    cases = []
+    for t in topos:
+        for l1, l2 in srlg_pairs(t, 4 if quick else 15):
+            for v in ["frr-srlg", "fa-frr-lam0", "fa-frr", "fa-frr-lam20"]:
+                cases.append(vcase(t, v, [link_fail(*l1), link_fail(*l2, t=T_FAIL + 0.2)],
+                                   srlgs=[("duct", [l1, l2])], stop=1.0,
+                                   labels={"failure": f"{'-'.join(l1)} then {'-'.join(l2)}"}))
+    rows = run_cases(cases, workers)
+    return Experiment(
+        "srlg_followup", "Correlated follow-up failures",
+        "A link fails; 200 ms later the other link of its declared SRLG fails too. The "
+        "first failure raises the peer's failure probability (rho*delta), so risk-aware "
+        "re-optimisation (lam>0) moves primaries off the peer before it fails.",
+        rows, aggregate(rows))
+
+
 ALL = {
     "timeline": exp_timeline,
     "single_link": exp_single_link,
@@ -326,6 +478,10 @@ ALL = {
     "srlg": exp_srlg,
     "sequential": exp_sequential,
     "flapping": exp_flapping,
+    "flapping_long": exp_flapping_long,
+    "gap": exp_gap,
+    "srlg_followup": exp_srlg_followup,
+    "risk_dynamic": exp_risk_dynamic,
     "state": exp_state,
     "risk_tradeoff": exp_risk_tradeoff,
 }

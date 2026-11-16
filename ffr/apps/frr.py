@@ -97,3 +97,34 @@ class LocalFRR(StaticRouting):
 class NodeFRR(LocalFRR):
     name = "frr-node"
     mode = "node"
+
+
+class SrlgNodeFRR(NodeFRR):
+    """Node-protecting local FRR whose detours also avoid the SRLG peers of the
+    protected element (the static, SRLG-aware variant of plain FRR).
+
+    It uses the same SRLG-disjoint planning as FA-FRR (and the same fallback
+    when no SRLG-disjoint detour exists) but has no risk model, no
+    re-optimisation and no hold-down: a baseline that has the same SRLG
+    knowledge as FA-FRR.
+    """
+
+    name = "frr-srlg"
+
+    def __init__(self, net, **kw):
+        super().__init__(net, **kw)
+        from ..risk import RiskModel
+        self._risk = RiskModel(net.topo)
+
+    def _exclusions(self, el: Element):
+        from ..routing import edge
+        if el[0] == "link":
+            return self._risk.shared_risk(el[1]), ()
+        risky = set()
+        for nb in self.graph.adj[el[1]]:
+            risky |= self._risk.shared_risk(edge(el[1], nb))
+        return risky, ()
+
+    def plan(self, host: str, hsw: str) -> dict[str, HopPlan]:
+        return plan_destination(self.graph, hsw, self.mode, excluded_edges=self.down_links,
+                                detour_exclusions=self._exclusions)

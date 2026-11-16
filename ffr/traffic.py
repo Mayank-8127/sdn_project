@@ -30,6 +30,8 @@ class FlowStats:
     seqs: set[int] = field(default_factory=set)
     hops: list[int] = field(default_factory=list)  # path length per received packet
     delays: list[float] = field(default_factory=list)
+    first_path: list[str] | None = None  # switches crossed by the first delivered packet
+    last_path: list[str] | None = None   # ... and by the last one
 
     @property
     def lost(self) -> int:
@@ -106,6 +108,9 @@ class TrafficManager:
         st.received += 1
         st.arrivals.append(self.sim.now)
         st.hops.append(len(pkt.trace))
+        if st.first_path is None:
+            st.first_path = list(pkt.trace)
+        st.last_path = pkt.trace
         st.delays.append(self.sim.now - pkt.created)
 
     # -- summaries -----------------------------------------------------------

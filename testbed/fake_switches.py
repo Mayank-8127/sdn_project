@@ -142,8 +142,10 @@ def main():
     flows = sum(s.flow_adds for s in sws.values())
     groups = sum(s.group_adds for s in sws.values())
     print(f"initial install: {flows} flow adds, {groups} group adds")
-    # per switch and remote host: a default FF group plus one per ingress neighbour
-    expected = (len(spec["hosts"]) - 1) * (len(spec["switches"]) + 2 * len(spec["links"]))
+    # per (switch, remote destination): a default FF group plus one for the
+    # neighbour its backup turns back to (every pair is protected on a
+    # 2-connected topology such as Abilene)
+    expected = 2 * (len(spec["hosts"]) - 1) * len(spec["switches"])
     ok = flows > 0 and groups == expected
 
     a, b = args.fail.split("-")

@@ -29,12 +29,18 @@ class Controller:
 
     def __init__(self, net, ctrl_delay: float = 0.005, compute_time: float = 0.005,
                  weight: str = "delay", lldp_interval: float | None = None,
-                 lldp_mult: int = 3):
+                 lldp_mult: int = 3, ctrl_jitter: float = 0.0, jitter_seed: int = 0):
         self.net = net
         self.sim = net.sim
         self.topo = net.topo
         self.ctrl_delay = ctrl_delay
         self.compute_time = compute_time
+        # Optional jitter on the controller->switch channel: each message gets
+        # an extra uniform delay in [0, ctrl_jitter], but messages to one
+        # switch still arrive in order (one TCP connection per switch).
+        self.ctrl_jitter = ctrl_jitter
+        self._jitter_rng = __import__("random").Random(jitter_seed)
+        self._last_arrival: dict[str, float] = {}
         # The controller's view of the network. In a real deployment this map
         # is built by topology discovery (LLDP probes); here we assume
         # discovery has completed and read the topology directly.
@@ -74,7 +80,13 @@ class Controller:
     def send(self, switch: str, msg) -> None:
         """Send a message to a switch (arrives after ``ctrl_delay``)."""
         self.msgs_sent += 1
-        self.sim.schedule(self.ctrl_delay, self.net.switches[switch].handle_message, msg)
+        if not self.ctrl_jitter:
+            self.sim.schedule(self.ctrl_delay, self.net.switches[switch].handle_message, msg)
+            return
+        arrival = self.sim.now + self.ctrl_delay + self._jitter_rng.uniform(0, self.ctrl_jitter)
+        arrival = max(arrival, self._last_arrival.get(switch, 0.0))
+        self._last_arrival[switch] = arrival
+        self.sim.at(arrival, self.net.switches[switch].handle_message, msg)
 
     def from_switch(self, msg) -> None:
         """Called by a switch; the message reaches us after ``ctrl_delay``."""

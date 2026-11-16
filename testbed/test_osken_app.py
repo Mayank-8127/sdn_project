@@ -59,6 +59,7 @@ def app(tmp_path):
            lambda h: net.switches[topo.hosts[h]].port_to(h), path)
     from ffr_osken_app import FailureAwareFRRApp
     a = FailureAwareFRRApp(topo_path=path)
+    a.spawn_after = lambda delay, fn, *args: fn(*args)  # run timers at once
     a.fake = {}
     for name, dpid in a.dpids.items():
         dp = FakeDP(dpid)
@@ -92,10 +93,15 @@ def test_initial_install_is_complete_and_valid(app):
     assert app.generation == 1
     for sw in app.dpids:
         groups = of_type(app, sw, parser.OFPGroupMod)
-        # per remote destination host: a default FF group plus one per ingress neighbour
-        assert len(groups) == 10 * (1 + len(app.graph.adj[sw]))
+        # per remote destination host: a default FF group plus one for the
+        # neighbour its backup turns back to (that one outputs to OFPP_IN_PORT)
+        assert len(groups) == 10 * 2
         assert all(g.type == ofp.OFPGT_FF for g in groups)
         assert all(len(g.buckets) == 2 for g in groups)  # Abilene is 2-connected
+        hairpin = [g for g in groups
+                   if any(a.port == ofp.OFPP_IN_PORT for a in g.buckets[1].actions
+                          if isinstance(a, parser.OFPActionOutput))]
+        assert len(hairpin) == 10
     # detour rules match on a VLAN tag
     den = of_type(app, "DEN", parser.OFPFlowMod)
     assert any("vlan_vid" in dict(m.match.items()) for m in den)
@@ -172,3 +178,16 @@ def test_backup_back_through_the_ingress_port_uses_in_port(app):
             assert mod.buckets[1].watch_port == app.ports[(u, back)]
             uturns += 1
     assert uturns > 0
+
+
+def test_failure_pins_backups_next_to_the_link(app):
+    answer_barriers(app)
+    before = len(app.fake["DEN"].sent)
+    port_status(app, "DEN", "KSC")
+    port_status(app, "KSC", "DEN")
+    pinned = [m for m in app.fake["DEN"].sent[before:]
+              if isinstance(m, parser.OFPGroupMod) and len(m.buckets) == 1]
+    # groups whose primary was DEN->KSC now hold only the (tagging) backup bucket
+    assert pinned
+    assert all(any(isinstance(a, parser.OFPActionPushVlan) for a in m.buckets[0].actions)
+               for m in pinned)

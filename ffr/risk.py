@@ -13,7 +13,15 @@ Three kinds of knowledge are combined:
 3. **Shared risk.** SRLG membership tells which links may fail *together*,
    so a backup must not share an SRLG with what it protects.
 
-The probability of link ``e`` failing is ``p(e) = min(p_max, p0(e) + penalty(e))``.
+The probability of link ``e`` failing is ``p(e) = min(p_max, p0(e) + penalty(e))``
+with ``p_max < 1`` (default 0.99) so that ``-ln(1 - p)`` stays finite.
+
+**One physical event, one penalty.** Failures that are reported within the
+``coincidence`` window of each other count as one correlated event: a link
+that fails itself gets ``flap_penalty`` (and loses any correlated share it was
+just given by a co-failing SRLG peer), and a surviving SRLG peer gets the
+correlated share ``correlation * flap_penalty`` at most once per event, however
+many of its peers fail together.
 
 For routing we convert probabilities into additive costs. A path survives if
 all its links survive: ``P(survive) = Π (1 - p(e))``. Taking ``-ln`` turns the
@@ -33,8 +41,13 @@ from .routing import Edge, edge
 
 class RiskModel:
     def __init__(self, topo, half_life: float = 5.0, flap_penalty: float = 0.3,
-                 correlation: float = 0.5, p_max: float = 0.99):
+                 correlation: float = 0.5, p_max: float = 0.99, coincidence: float = 0.05):
+        if not 0.0 < p_max < 1.0:
+            raise ValueError("p_max must be in (0, 1)")
         self.half_life = half_life
+        self.coincidence = coincidence
+        # last correlated share given to a link: e -> (amount, time)
+        self._shared: dict[Edge, tuple[float, float]] = {}
         self.flap_penalty = flap_penalty
         self.correlation = correlation
         self.p_max = p_max
@@ -56,14 +69,30 @@ class RiskModel:
         return value * 0.5 ** ((now - t) / self.half_life)
 
     def _add_penalty(self, e: Edge, amount: float, now: float) -> None:
-        self._penalty[e] = (self.penalty(e, now) + amount, now)
+        self._penalty[e] = (max(0.0, self.penalty(e, now) + amount), now)
 
-    def record_failure(self, e: Edge, now: float) -> None:
-        """A failure of ``e`` was observed at ``now``."""
+    def record_failure(self, e: Edge, now: float, down=()) -> None:
+        """A failure of ``e`` was observed at ``now``.
+
+        ``down`` are links already known to be down; they get no correlated
+        share (they were charged for their own failure).
+        """
         self.failures[e] = self.failures.get(e, 0) + 1
+        shared = self._shared.pop(e, None)
+        if shared is not None and now - shared[1] <= self.coincidence:
+            # e was just charged as the SRLG peer of a co-failing link: this is
+            # the same physical event, so replace that share by e's own penalty
+            self._add_penalty(e, -shared[0] * 0.5 ** ((now - shared[1]) / self.half_life), now)
         self._add_penalty(e, self.flap_penalty, now)
+        amount = self.flap_penalty * self.correlation
         for other in self.shared_risk(e):
-            self._add_penalty(other, self.flap_penalty * self.correlation, now)
+            if other in down:
+                continue
+            last = self._shared.get(other)
+            if last is not None and now - last[1] <= self.coincidence:
+                continue  # already charged for this event
+            self._shared[other] = (amount, now)
+            self._add_penalty(other, amount, now)
 
     # -- queries -----------------------------------------------------------------
     def p(self, e: Edge, now: float) -> float:

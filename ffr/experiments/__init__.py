@@ -29,7 +29,19 @@ def _table(rows: list[dict], cols: list[str] | None = None) -> str:
 
 
 SUMMARY_COLS = ["topo", "app", "runs", "survival_pct", "dead_flows", "lost_pkts",
-                "mean_outage_ms", "max_outage_ms", "stretch"]
+                "mean_outage_ms", "max_outage_ms", "stretch", "affected_flows",
+                "peak_flow_entries", "looped_pkts", "max_link_flows_before",
+                "max_link_flows_after"]
+COLS = {
+    "gap": ["topo", "app", "gap_ms", "runs", "survival_pct", "dead_flows", "lost_pkts",
+            "mean_outage_ms"],
+    "flapping_long": ["pattern", "app", "runs", "survival_pct", "lost_pkts", "mean_outage_ms",
+                      "max_outage_ms", "stretch", "looped_pkts"],
+    "risk_dynamic": ["topo", "app", "runs", "survival_pct", "affected_flows", "lost_pkts",
+                     "mean_outage_ms", "mean_path_delay_ms", "stretch"],
+    "srlg_followup": ["topo", "app", "runs", "survival_pct", "affected_flows", "lost_pkts",
+                      "mean_outage_ms", "stretch"],
+}
 
 
 def figures(exp: Experiment, out: str) -> list[str]:
@@ -76,6 +88,7 @@ def write_report(exps: list[Experiment], out: str, quick: bool, elapsed: float) 
         cols = SUMMARY_COLS if exp.summary and "survival_pct" in exp.summary[0] else None
         if exp.name == "gray":
             cols = ["config"] + SUMMARY_COLS[2:]
+        cols = COLS.get(exp.name, cols)
         lines.append(_table(exp.summary, cols))
         for fig in exp.extra.get("figures", []):
             if fig:

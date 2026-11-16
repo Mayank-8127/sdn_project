@@ -40,8 +40,8 @@ python3.12 -m venv .venv-testbed
   export(t, lambda a,b:n.switches[a].port_to(b), lambda h:n.switches[t.hosts[h]].port_to(h), '/tmp/t.json')"
 .venv-testbed/bin/python testbed/run_controller.py --port 16653 --topo /tmp/t.json &
 .venv-testbed/bin/python testbed/fake_switches.py --port 16653 --topo /tmp/t.json
-# initial install: 695 flow adds, 390 group adds
-# after DEN-KSC failure: 390 group modifies, 11 old-detour deletes
+# initial install: 525 flow adds, 220 group adds
+# after DEN-KSC failure: 220 group modifies, 11 old-detour deletes
 # OK
 ```
 
@@ -99,9 +99,17 @@ scenario, probed pairs whose shortest path crosses a failed link
 
 * **U-turn backups.** OpenFlow drops a packet that is output to the port it
   arrived on. When a backup path starts by going back towards the previous
-  switch, the bucket must use `OFPP_IN_PORT`. The app therefore installs, for
-  every (switch, destination), one FF group per ingress neighbour (selected by
-  an `in_port` rule) in addition to the default group.
+  switch, the bucket must use `OFPP_IN_PORT`. That only happens for packets
+  that arrive from the backup's first hop, so for every (switch, destination)
+  the app installs the default FF group plus one more for that neighbour,
+  selected by an `in_port` rule. Tagged detour rules never need it, because a
+  detour is a simple path.
+* **Loop-free updates.** After a failure the app first pins the groups next to
+  the failed link to their backup bucket (FF groups are revertive), then
+  installs the new generation's detour rules, then rewrites the groups in
+  rounds separated by barriers so that a switch only moves to its new next
+  hop once the switches downstream of it on the new path have moved, and
+  finally deletes the old detour rules after a drain time.
 * **Two ends, two reports.** Each end of a link sends its own `PORT_STATUS`,
   and the end taken down administratively reports `OFPPC_PORT_DOWN` with a
   live state. The app keeps the state of each end and treats the link as up

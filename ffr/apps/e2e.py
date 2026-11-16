@@ -26,7 +26,8 @@ from __future__ import annotations
 
 from ..detection import PathBFD
 from ..openflow import Bucket, Group, Match, Output, PopTag, SetTag
-from ..routing import disjoint_paths
+from ..risk import RiskModel
+from ..routing import disjoint_paths, edge, path_edges, shortest_path
 from .static import PRIMARY, PRIO_PRIMARY, StaticRouting
 
 PRIO_INGRESS = 150
@@ -38,9 +39,12 @@ class PathProtection(StaticRouting):
     name = "e2e"
 
     def __init__(self, net, node_disjoint: bool = True, path_bfd_interval: float = 0.0033,
-                 path_bfd_mult: int = 3, **kw):
+                 path_bfd_mult: int = 3, srlg_aware: bool = False, **kw):
         super().__init__(net, **kw)
         self.node_disjoint = node_disjoint
+        self.srlg_aware = srlg_aware
+        self._risk = RiskModel(net.topo)
+        self.srlg_backups = 0
         self.monitor = PathBFD(net, path_bfd_interval, path_bfd_mult)
         self.paths: dict[tuple[str, str], tuple[list[str], list[str] | None]] = {}
         self.tags: dict[tuple[str, ...], int] = {}
@@ -69,6 +73,8 @@ class PathProtection(StaticRouting):
                     p1, p2 = disjoint_paths(self.graph, s, t)  # fall back to link-disjoint
                 if p1 is None:
                     continue
+                if self.srlg_aware:
+                    p2 = self._srlg_backup(p1, p2)
                 self.paths[(s, t)] = (p1, p2)
                 for p in (p1, p2):
                     if p is None:
@@ -84,6 +90,29 @@ class PathProtection(StaticRouting):
                     continue
                 self.install_ingress(src, dst, s, *self.paths[(s, t)])
 
+    def _srlg_backup(self, p1, p2):
+        """Replace a backup that shares a risk group with the primary.
+
+        Bhandari's pair is disjoint but SRLG-oblivious. If the backup uses a
+        link that shares an SRLG with a primary link, take instead the
+        shortest path that avoids the primary's links, their SRLG peers and
+        (if node-disjoint) the primary's transit switches. If none exists the
+        Bhandari backup is kept. (Exact SRLG-disjoint path pairs are NP-hard
+        in general; this two-step heuristic is the usual practical choice.)
+        """
+        primary = set(path_edges(p1))
+        risky = set()
+        for e in primary:
+            risky |= self._risk.shared_risk(e)
+        if p2 is not None and not (set(path_edges(p2)) & risky):
+            return p2
+        alt = shortest_path(self.graph, p1[0], p1[-1], excluded_edges=primary | risky,
+                            excluded_nodes=set(p1[1:-1]) if self.node_disjoint else ())
+        if alt is None:
+            return p2
+        self.srlg_backups += 1
+        return alt
+
     def install_ingress(self, src: str, dst: str, s: str, p1, p2) -> None:
         q1 = self.port(s, p1[1])
         watch = self.monitor.add_session(p1)
@@ -94,3 +123,13 @@ class PathProtection(StaticRouting):
         self._gid += 1
         self.install_group(s, self._gid, buckets)
         self.install(s, Match(src=src, dst=dst), [Group(self._gid)], PRIO_INGRESS, PRIMARY)
+
+
+class SrlgPathProtection(PathProtection):
+    """End-to-end protection whose backup also avoids the primary's SRLG peers."""
+
+    name = "e2e-srlg"
+
+    def __init__(self, net, **kw):
+        kw.setdefault("srlg_aware", True)
+        super().__init__(net, **kw)

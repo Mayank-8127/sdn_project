@@ -18,8 +18,9 @@ learns how the network fails and keeps the backups up to date. It has:
 * a deterministic **OpenFlow emulator** in pure Python (flow tables, group
   tables with fast-failover, port liveness, control-channel delay, rule
   installation time, loss-of-signal, BFD, LLDP, barriers);
-* six **controller strategies**: `static`, `reactive`, `frr-link`,
-  `frr-node`, `e2e` and the proposed `fa-frr`;
+* **controller strategies**: `static`, `reactive`, `frr-link`, `frr-node`,
+  `frr-srlg`, `e2e`, `e2e-srlg` and the proposed `fa-frr` (plus FA-FRR
+  ablations that switch off one mechanism each, used by the experiments);
 * an **evaluation suite** of 850 simulations on the Abilene and NSFNET
   backbones that regenerates every result in the paper;
 * a port of FA-FRR to a real **OpenFlow 1.3 controller** (OS-Ken) for
@@ -121,7 +122,7 @@ differ (relative difference below 1e-14), because Python 3.12 changed how
 `python -m ffr experiment --quick --out results-quick` runs a reduced suite
 in under a minute. One experiment alone: `python -m ffr experiment srlg --out results`
 (names: `timeline single_link node_crash gray bfd_tradeoff srlg sequential
-flapping state risk_tradeoff`).
+flapping flapping_long gap srlg_followup risk_dynamic state risk_tradeoff`).
 
 ### 5.2 Paper figures
 
@@ -194,8 +195,8 @@ python testbed/fake_switches.py --port 16653 --topo topo.json
 Expected output, then stop the controller with Ctrl+C:
 
 ```
-initial install: 695 flow adds, 390 group adds
-after DEN-KSC failure: 390 group modifies, 11 old-detour deletes
+initial install: 525 flow adds, 220 group adds
+after DEN-KSC failure: 220 group modifies, 11 old-detour deletes
 OK
 ```
 

@@ -52,7 +52,7 @@ except ImportError:  # pragma: no cover
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from ffr.protection import plan_destination  # noqa: E402
 from ffr.risk import RiskModel  # noqa: E402
-from ffr.routing import Graph, edge  # noqa: E402
+from ffr.routing import Graph, edge, next_hops_to  # noqa: E402
 from ffr.topology import Topology  # noqa: E402
 
 PRIO_EGRESS_TAGGED = 110
@@ -111,6 +111,10 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
         self.generation = 0
         self.gen_switches: dict[int, set[str]] = {}
         self.groups_installed: set[tuple[str, int]] = set()
+        # vias with an in_port rule per (switch, host); kept up to date every generation
+        self.vias: dict[tuple[str, str], set] = {}
+        self.installed_primary: dict[tuple[str, str], str] = {}
+        self.gen_drain: dict[int, float] = {}
         self.primary_done: set[tuple] = set()
         self.gids: dict[tuple, int] = {}
         self.tags: dict[tuple, int] = {}
@@ -120,6 +124,9 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
         self.started = False
 
     # ------------------------------------------------------------ helpers
+    def spawn_after(self, delay, fn, *args):
+        return hub.spawn_after(delay, fn, *args)
+
     def now(self) -> float:
         return time.time()
 
@@ -180,6 +187,19 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
             risky |= self.risk.shared_risk(edge(el[1], nb))
         return risky, ()
 
+    def release_held_if_needed(self):
+        """Release held-down links if a destination is unreachable without them."""
+        if not self.held:
+            return
+        for s in sorted(set(self.topo.hosts.values())):
+            if len(next_hops_to(self.graph, s, excluded_edges=set(self.down))) > \
+                    len(next_hops_to(self.graph, s, excluded_edges=self.unusable())):
+                for e, timer in self.held.items():
+                    timer.cancel()
+                    self.logger.info("link %s: hold-down overridden", "-".join(sorted(e)))
+                self.held.clear()
+                return
+
     def plan_all(self):
         return {h: plan_destination(self.graph, s, "node", excluded_edges=self.unusable(),
                                     weight=self.weight(), detour_exclusions=self.srlg_exclusions)
@@ -187,16 +207,20 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
 
     # ------------------------------------------------------------ installing
     def reoptimize(self):
+        self.release_held_if_needed()
         self.generation += 1
         gen = self.generation
         cookie = DETOUR_BASE + gen
         self.plans = self.plan_all()
         touched = set()
+        drain = 0.0
         for host, plans in self.plans.items():
             ip = self.hosts[host]["ip"]
             rules = {}
             for u, hp in plans.items():
                 if hp.protected:
+                    drain = max(drain, sum(self.graph.weight(a, b)
+                                           for a, b in zip(hp.detour, hp.detour[1:])))
                     t = self.tag_for(hp.tag_key)
                     for x, y in zip(hp.detour[1:-1], hp.detour[2:]):
                         rules[(x, t)] = y
@@ -207,8 +231,10 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
                 self.flow(x, m, [p.OFPActionOutput(self.ports[(x, y)])], PRIO_DETOUR, cookie)
                 touched.add(x)
         self.gen_switches[gen] = touched
+        self.gen_drain[gen] = drain
         self.logger.info("FA-FRR gen %d: unusable=%s", gen, sorted(map(sorted, self.unusable())))
-        self.barrier(touched, lambda: self.switch_groups(gen))
+        # barrier on every switch: also flushes anything a superseded update sent
+        self.barrier(list(self.datapaths), lambda: self.switch_groups(gen))
 
     def switch_groups(self, gen):
         if gen != self.generation:
@@ -226,15 +252,55 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
                 self.flow(hsw, tagged, [p.OFPActionPopVlan(), out], PRIO_EGRESS_TAGGED,
                           COOKIE_PRIMARY)
                 self.primary_done.add((hsw, host))
-            for u, hp in sorted(plans.items()):
-                # One FF group per ingress neighbour as well as the default one:
-                # OpenFlow drops output to the ingress port, so a packet whose
-                # backup turns back where it came from needs OFPP_IN_PORT.
-                for via in [None] + sorted(self.graph.adj[u]):
-                    self.install_group(u, host, hp, ip, via)
-        self.barrier(list(self.datapaths), lambda: self.cleanup(gen))
+        self.run_rounds(gen, self.levels())
 
-    def install_group(self, u, host, hp, ip, via):
+    def levels(self):
+        """(switch, host) group updates in loop-free rounds (see ffr.apps.fa_frr)."""
+        rounds = {}
+        for host, plans in self.plans.items():
+            hsw = self.topo.hosts[host]
+            changed = {u: self.installed_primary.get((u, host)) != hp.primary
+                       for u, hp in plans.items()}
+            count = {hsw: 0}
+
+            def c(u):
+                # changed switches on u's new path to the destination, u included
+                if u not in count:
+                    count[u] = changed[u] + c(plans[u].primary)
+                return count[u]
+
+            for u in sorted(plans):
+                rounds.setdefault(c(u) if changed[u] else 1, []).append((u, host))
+        return [rounds[k] for k in sorted(rounds)]
+
+    def run_rounds(self, gen, rounds):
+        if gen != self.generation:
+            return
+        if not rounds:
+            self.logger.info("FA-FRR gen %d groups installed: protected", gen)
+            drain = max((self.gen_drain.get(g, 0.0) for g in self.gen_switches if g < gen),
+                        default=0.0)
+            self.spawn_after(drain, self.cleanup, gen)
+            return
+        touched = set()
+        for u, host in rounds[0]:
+            hp = self.plans[host][u]
+            ip = self.hosts[host]["ip"]
+            # OpenFlow drops output to the ingress port, so a packet whose backup
+            # turns back to the neighbour it came from needs OFPP_IN_PORT: one
+            # extra FF group (and in_port rule) for that neighbour only. Vias
+            # used by earlier generations keep being updated, so their rules
+            # never point at a stale group.
+            vias = self.vias.setdefault((u, host), set())
+            if hp.protected:
+                vias.add(hp.detour[1])
+            for via in [None] + sorted(vias):
+                self.install_group(u, host, hp, ip, via)
+            self.installed_primary[(u, host)] = hp.primary
+            touched.add(u)
+        self.barrier(touched, lambda: self.run_rounds(gen, rounds[1:]))
+
+    def install_group(self, u, host, hp, ip, via, pinned=False):
         dp = self.datapaths[u]
         p, ofp = dp.ofproto_parser, dp.ofproto
         in_port = self.ports[(u, via)] if via else None
@@ -243,8 +309,8 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
             return p.OFPActionOutput(ofp.OFPP_IN_PORT if port == in_port else port)
 
         prim = self.ports[(u, hp.primary)]
-        buckets = [p.OFPBucket(watch_port=prim, watch_group=ofp.OFPG_ANY,
-                               actions=[output(prim)])]
+        buckets = [] if pinned else [p.OFPBucket(watch_port=prim, watch_group=ofp.OFPG_ANY,
+                                                 actions=[output(prim)])]
         if hp.protected:
             q = self.ports[(u, hp.detour[1])]
             t = self.tag_for(hp.tag_key)
@@ -264,6 +330,8 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
             self.primary_done.add((u, host, via))
 
     def cleanup(self, gen):
+        if gen != self.generation:
+            return
         for old in sorted(g for g in self.gen_switches if g < gen):
             for sw in sorted(self.gen_switches.pop(old)):
                 if sw in self.datapaths:
@@ -322,13 +390,17 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
             if e in self.down:
                 return
             self.down.add(e)
-            self.risk.record_failure(e, now)
+            self.risk.record_failure(e, now, down=self.down)
             timer = self.held.pop(e, None)
             if timer is not None:
                 timer.cancel()
+                # the link carries no traffic, but its SRLG peers just got riskier
+                if self.risk.shared_risk(e) - self.unusable() and self.lam > 0:
+                    self.reoptimize()
                 return
             self.logger.info("link %s DOWN: data plane already rerouted, re-optimising",
                              "-".join(sorted(e)))
+            self.pin_backups(e)
             self.reoptimize()
         else:
             if e not in self.down:
@@ -337,6 +409,24 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
             hd = self.risk.holddown(e, now, self.base_holddown)
             self.logger.info("link %s UP: hold-down %.1fs", "-".join(sorted(e)), hd)
             self.held[e] = hub.spawn_after(hd, self.release, e)
+
+    def pin_backups(self, e):
+        """Rewrite the groups next to a failed link with their backup bucket only.
+
+        FF groups are revertive; pinning stops a link that comes back during
+        re-optimisation from pulling traffic back (see ffr.apps.fa_frr).
+        """
+        a, b = sorted(e)
+        for host, plans in self.plans.items():
+            for u in (a, b):
+                hp = plans.get(u)
+                if hp is None or not hp.protected or hp.primary != (b if u == a else a):
+                    continue
+                if self.installed_primary.get((u, host)) != hp.primary:
+                    continue  # not installed yet: nothing to pin
+                ip = self.hosts[host]["ip"]
+                for via in [None] + sorted(self.vias.get((u, host), ())):
+                    self.install_group(u, host, hp, ip, via, pinned=True)
 
     def release(self, e):
         if self.held.pop(e, None) is not None and e not in self.down:

@@ -1,8 +1,8 @@
 """Controller applications, one per recovery strategy."""
 
-from .e2e import PathProtection
+from .e2e import PathProtection, SrlgPathProtection
 from .fa_frr import FailureAwareFRR
-from .frr import LocalFRR, NodeFRR
+from .frr import LocalFRR, NodeFRR, SrlgNodeFRR
 from .reactive import ReactiveRouting
 from .static import StaticRouting
 
@@ -11,7 +11,9 @@ APPS = {
     "reactive": ReactiveRouting,
     "frr-link": LocalFRR,
     "frr-node": NodeFRR,
+    "frr-srlg": SrlgNodeFRR,
     "e2e": PathProtection,
+    "e2e-srlg": SrlgPathProtection,
     "fa-frr": FailureAwareFRR,
 }
 
