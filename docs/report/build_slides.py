@@ -198,7 +198,7 @@ def title_slide(D: Deck):
 def agenda(D):
     s = D.slide("Agenda")
     items = ["Motivation and problem statement", "Objectives", "Related work and research gap",
-             "System design", "Incremental development", "FA-FRR: the proposed scheme",
+             "System design", "FA-FRR: the proposed scheme",
              "Experimental setup", "Results", "Real testbed and Mininet results", "Conclusion and future work"]
     for i, it in enumerate(items):
         col, row = divmod(i, 5)
@@ -233,7 +233,7 @@ def objectives(D):
         "Implement the baselines: **static, reactive, frr-link, frr-node, end-to-end protection**",
         "Design and implement **FA-FRR**: risk model, risk-aware paths, SRLG-disjoint backups, hitless "
         "re-optimisation, flap damping",
-        "Evaluate on **Abilene** and **NSFNET** under 7 failure models (~1,000 simulations)",
+        "Evaluate on **Abilene** and **NSFNET** under 7 failure models (850 simulations)",
         "Port the controller to a real OpenFlow 1.3 framework (**OS-Ken / Ryu + Mininet + OVS**)",
     ], 20, 12)
 
@@ -266,24 +266,12 @@ def design(D):
         ["apps/", "static, reactive, frr, e2e, fa_frr"],
     ], col_w=[2.6, 4], size=14, row_h=0.5)
     D.bullets(s, Inches(7.6), Inches(1.8), Inches(5.3), Inches(5), [
-        "Pure Python, **~4,400 lines**, **109 tests**",
+        "Pure Python, **~4,500 lines**, **109 tests**",
         "Deterministic: same input → same result",
-        "Runs without root; ~1,000 simulations in ~3 min",
+        "Runs without root; 850 simulations in ~3 min",
         "Models OpenFlow 1.3 semantics, not just graphs",
         "Same planning code reused by the real controller",
     ], 18)
-
-
-def roadmap(D):
-    s = D.slide("Built incrementally: basic → advanced", "Implementation")
-    D.image(s, FIG / "roadmap.png", Inches(0.5), Inches(1.6), Inches(12.3), Inches(2.4))
-    D.table(s, Inches(0.8), Inches(4.2), Inches(11.7), ["Version", "v0.1", "v0.2", "v0.3", "v0.4", "v0.5",
-                                                        "v0.6", "v0.7", "v0.8 – v1.1"],
-            [["Tests passing", "27", "33", "63", "78", "89", "104", "109", "109 + testbed"]],
-            size=15, row_h=0.5, highlight_col=6)
-    D.text(s, Inches(0.8), Inches(5.5), Inches(11.7), Inches(1.2),
-           "One git tag per version, each with its own tests and documentation; v1.1 validates the "
-           "controller on Mininet with Open vSwitch.", 17, MUTED)
 
 
 def fafrr(D):
@@ -472,13 +460,13 @@ def thanks(D):
     D.text(s, Inches(0.8), Inches(3.7), Inches(11.7), Inches(0.6), "Questions?", 26,
            RGBColor(0x9E, 0xD8, 0x9E), align=PP_ALIGN.CENTER)
     D.text(s, Inches(0.8), Inches(5.3), Inches(11.7), Inches(0.9),
-           "Code, documentation and results: project git repository (tags v0.1 – v1.1)", 15,
+           "Code, documentation and results are provided with the project", 15,
            RGBColor(0xD6, 0xDE, 0xEA), align=PP_ALIGN.CENTER)
 
 
 def main():
     D = Deck()
-    for f in (title_slide, agenda, gap, objectives, literature, design, roadmap,
+    for f in (title_slide, agenda, gap, objectives, literature, design,
               fafrr, fafrr_ideas, reopt, setup, res_timeline, res_single, res_double, res_gray_flap,
               res_summary, testbed, testbed_results, conclusion, thanks):
         f(D)

@@ -6,9 +6,9 @@ Software-Defined Networks**:
 * a deterministic **OpenFlow emulator** in pure Python (flow tables, group
   tables with fast-failover, port liveness, control-channel latency, rule
   installation time, BFD, LLDP, barriers),
-* six **controller strategies**, built up version by version, from "no
-  recovery" to **Failure-Aware Fast Reroute (FA-FRR)**,
-* an **evaluation suite** (≈1,000 simulations on Abilene and NSFNET) with a
+* six **controller strategies**, from "no recovery" to **Failure-Aware Fast
+  Reroute (FA-FRR)**,
+* an **evaluation suite** (850 simulations on Abilene and NSFNET) with a
   generated report,
 * a **real-testbed port** for OS-Ken/Ryu + Mininet + Open vSwitch, validated
   on Abilene in Mininet.
@@ -57,13 +57,13 @@ uv venv && uv pip install -e '.[dev,plots]'     # or: python -m venv .venv && .v
 
 ## Strategies (`--app`)
 
-| App | Version | How it recovers |
-|-----|---------|-----------------|
-| `static` | v0.1 | it doesn't (baseline) |
-| `reactive` | v0.2 | controller recomputes after PORT_STATUS / LLDP |
-| `frr-link` / `frr-node` | v0.3 | fast-failover groups + tagged detours around the link / next switch |
-| `e2e` | v0.5 | disjoint primary/backup paths, multi-hop BFD, ingress switch-over |
-| `fa-frr` | v0.6 | node/link FRR + risk model, risk-aware paths, SRLG-disjoint backups, hitless re-optimisation, flap damping |
+| App | How it recovers |
+|-----|-----------------|
+| `static` | it doesn't (baseline) |
+| `reactive` | controller recomputes after PORT_STATUS / LLDP |
+| `frr-link` / `frr-node` | fast-failover groups + tagged detours around the link / next switch |
+| `e2e` | disjoint primary/backup paths, multi-hop BFD, ingress switch-over |
+| `fa-frr` | node/link FRR + risk model, risk-aware paths, SRLG-disjoint backups, hitless re-optimisation, flap damping |
 
 ## Layout
 
@@ -82,32 +82,15 @@ ffr/                     the emulator and controller apps
   experiments/           evaluation suite, plots, report
 testbed/                 OS-Ken/Ryu app, Mininet scripts, wire-level tests, Mininet results
 tests/                   pytest suite
-docs/                    interim progress report, experiment results, project report and presentation
+docs/                    experiment results, project report and presentation
+paper/                   IEEE paper (PDF) and the script that draws its figures
 ```
 
 ## Documentation
 
 | Doc | Content |
 |-----|---------|
-| [progress/](docs/progress/README.md) | interim progress report and presentation (v0.4) |
 | [results/](docs/results/REPORT.md) | evaluation results, figures and raw data |
 | [testbed/](testbed/README.md) | real testbed setup and Mininet results |
 | [report/](docs/report/README.md) | project report (Word/PDF) and presentation (PowerPoint/PDF) |
-
-## Versions
-
-Every version is a git tag; `git checkout v0.3` gives you the project as it
-was at that step.
-
-| Tag | Adds |
-|-----|------|
-| v0.1 | emulator + static shortest-path controller (no recovery) |
-| v0.2 | PORT_STATUS + reactive restoration by the controller |
-| v0.3 | fast-failover groups + tagged detours (frr-link, frr-node) |
-| v0.4 | pluggable failure detection (LOS, BFD, LLDP), gray failures, switch crashes |
-| v0.5 | end-to-end path protection (Bhandari disjoint paths, multi-hop BFD) |
-| v0.6 | FA-FRR: risk model, SRLG-disjoint backups, hitless re-optimisation, flap damping |
-| v0.7 | experiment suite, figures, generated report |
-| v0.8 | OS-Ken/Ryu app + Mininet scripts, wire-level tests |
-| v1.0 | project overview, CI |
-| v1.1 | validation on Mininet/Open vSwitch: `IN_PORT` U-turn groups, per-end port state, scenario runner, results |
+| [paper/](paper/README.md) | IEEE conference paper and how each number in it is regenerated |

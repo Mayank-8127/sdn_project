@@ -419,10 +419,9 @@ def front_matter(R: Report):
         "risk-aware primary paths, backups that avoid Shared Risk Link Groups (SRLGs), hitless "
         "make-before-break re-optimisation after every failure, and flap damping.", indent=1.0)
     R.p("Everything is built from scratch in Python as a deterministic discrete-event OpenFlow "
-        "emulator (about 4,400 lines of code, 109 automated tests), developed incrementally in "
-        "ten tagged versions. FA-FRR is compared with five baselines (no recovery, reactive "
+        "emulator (about 4,500 lines of code, 109 automated tests), and FA-FRR is compared with five baselines (no recovery, reactive "
         "restoration, local link and node protection, and end-to-end path protection) in "
-        "about 1,000 simulations on the Abilene and NSFNET research backbones under seven "
+        "850 simulations on the Abilene and NSFNET research backbones under seven "
         "failure models. FA-FRR is the only scheme that is both millisecond-fast (4–7 ms mean "
         "outage) and never loses a flow: it survives 100 % of correlated double failures and "
         "of sequential double failures, where plain fast reroute survives only 7–33 % and "
@@ -465,10 +464,9 @@ def ch_introduction(R: Report):
     R.p("The project delivers four artefacts: (1) a deterministic OpenFlow network emulator "
         "written from scratch in Python; (2) six recovery strategies implemented as "
         "controller applications, five baselines and FA-FRR; (3) an evaluation suite of "
-        "about 1,000 simulations on the Abilene and NSFNET backbones under seven failure "
+        "850 simulations on the Abilene and NSFNET backbones under seven failure "
         "models; and (4) a port of FA-FRR to a real OpenFlow 1.3 controller (OS-Ken/Ryu) for "
-        "Mininet and Open vSwitch, validated on the Abilene topology. The work was developed "
-        "incrementally in ten tagged versions, each with its own automated tests.", indent=1.0)
+        "Mininet and Open vSwitch, validated on the Abilene topology.", indent=1.0)
     R.h2("1.2 Motivation")
     R.p("Controller-driven restoration in SDN needs a control-channel round trip, route "
         "computation and per-rule installation, so recovery takes tens to hundreds of "
@@ -518,7 +516,7 @@ def ch_introduction(R: Report):
     R.h2("1.6 Organisation of the Report")
     R.p("Chapter 2 reviews related work and identifies the gap addressed. Chapter 3 states "
         "the requirements and specification and Chapter 4 presents the system design, "
-        "including the FA-FRR algorithm. Chapter 5 describes the incremental implementation, "
+        "including the FA-FRR algorithm. Chapter 5 describes the implementation, "
         "testing and the real-controller port, Chapter 6 the experimental setup and Chapter 7 "
         "the results. Chapter 8 concludes and outlines future work. Appendix A explains how "
         "to run the software.", indent=1.0)
@@ -609,9 +607,9 @@ def ch_requirements(R: Report):
         "**Determinism:** identical inputs give identical results (discrete-event simulation, "
         "seeded randomness).",
         "**Portability:** the core runs anywhere Python 3.10+ runs, without root privileges.",
-        "**Testability:** every version passes its own automated test suite.",
+        "**Testability:** every module is covered by an automated test suite.",
         "**Readability:** code and documentation that are easy to follow.",
-        "**Performance:** the full evaluation (about 1,000 simulations) completes in minutes "
+        "**Performance:** the full evaluation (850 simulations) completes in minutes "
         "on a desktop machine.",
     ])
     R.h2("3.3 Hardware and Software Used")
@@ -621,7 +619,7 @@ def ch_requirements(R: Report):
         ["SDN controller framework", "OS-Ken 4.2 (maintained fork of Ryu)"],
         ["Testbed tools", "Mininet 2.3.1b4, Open vSwitch 4.0 with OpenFlow 1.3 and BFD, "
                           "Linux 7.2"],
-        ["Version control / CI", "git (one tag per version), GitHub Actions workflow"],
+        ["Testing / CI", "pytest, GitHub Actions workflow"],
         ["Hardware", "Intel Core i5-12500H, 16 threads; simulations run in parallel on all "
                      "cores, Mininet on the same machine"],
     ], "Software and hardware", widths=[4.5, 11.0])
@@ -773,24 +771,24 @@ on PORT_STATUS up(e):
 
 def ch_implementation(R: Report):
     R.chapter_heading("Implementation")
-    R.h2("5.1 Incremental Development")
-    R.p("The system was built in versions, from the emulator and a baseline controller up to "
-        "FA-FRR and its validation on Mininet. Each version is a git tag with its own tests "
-        "and documentation. Figure 5.1 and Table 5.1 summarise the versions.", indent=1.0)
-    R.figure(FIG / "roadmap.png", "Version roadmap.", 15.5)
-    R.table(["Tag", "Added", "Tests"], [
-        ["v0.1", "discrete-event emulator, OpenFlow flow tables, static shortest-path controller", "27"],
-        ["v0.2", "PORT_STATUS, reactive restoration with rule diffs", "33"],
-        ["v0.3", "group tables, fast-failover, tagged link and node detours", "63"],
-        ["v0.4", "pluggable detection (LOS, BFD, LLDP), gray failures, switch crashes", "78"],
-        ["v0.5", "end-to-end protection: Bhandari disjoint paths, multi-hop BFD", "89"],
-        ["v0.6", "FA-FRR: risk model, SRLG-disjoint backups, hitless re-optimisation, hold-down", "104"],
-        ["v0.7", "evaluation suite (10 experiments), plots, generated report", "109"],
-        ["v0.8", "OS-Ken/Ryu application, Mininet script, wire-level tests", "109 + testbed"],
-        ["v1.0", "final documentation, continuous integration", "109 + testbed"],
-        ["v1.1", "Mininet/Open vSwitch validation, IN_PORT U-turn groups, per-end port state",
-         "109 + testbed"],
-    ], "Versions and automated tests passing at each tag", widths=[1.5, 11.5, 2.5])
+    R.h2("5.1 Code Organisation")
+    R.p("The software is a Python package (`ffr`) with no dependencies outside the standard "
+        "library, a testbed folder for the real controller and a pytest suite. Table 5.1 "
+        "lists the modules.", indent=1.0)
+    R.table(["Module", "Role"], [
+        ["`sim.py`", "discrete-event engine (time-ordered event queue)"],
+        ["`topology.py`", "topologies (Abilene, NSFNET, rings, grids), SRLGs, failure priors"],
+        ["`openflow.py`", "matches, actions, flow tables, group tables, OpenFlow messages"],
+        ["`network.py`", "links, ports, hosts and switches; link cuts, gray failures, crashes"],
+        ["`detection.py`", "loss of signal, per-link BFD, multi-hop path BFD"],
+        ["`controller.py`", "controller base: channel delay, LLDP probing, barriers"],
+        ["`routing.py`", "Dijkstra, next-hop trees, Bhandari disjoint path pairs"],
+        ["`protection.py`", "detour planning for link and node protection"],
+        ["`risk.py`", "failure-aware risk model, hold-down"],
+        ["`apps/`", "static, reactive, frr (link/node), e2e and fa_frr controllers"],
+        ["`experiments/`", "evaluation suite, parallel runner, plots, report generation"],
+        ["`testbed/`", "OS-Ken/Ryu application, Mininet scripts, wire-level tests"],
+    ], "Modules of the implementation", widths=[3.5, 12.0])
     R.h2("5.2 Key Implementation Details")
     R.bullets([
         "**Tags.** Detoured packets carry a tag (a VLAN id on real switches). Detour rules "
@@ -805,7 +803,7 @@ def ch_implementation(R: Report):
         "the longest run of missing sequence numbers times the sending interval, and is "
         "infinite if the flow never recovers.",
         "**Parallel experiments.** The suite runs independent simulations in parallel with "
-        "Python multiprocessing; about 1,000 simulations take about three minutes on 16 cores.",
+        "Python multiprocessing; the 850 simulations take about three minutes on 16 cores.",
     ])
     R.p("Below is the real flow and group table of switch s1 on a six-switch ring under "
         "frr-link, printed by the command-line tool. Destination rules point at fast-failover "
@@ -821,7 +819,7 @@ s1: group 5 [fast_failover] watch=2: Output(port=2) | watch=1: SetTag(tag=5), Ou
     R.h2("5.3 Testing")
     R.p("Testing used pytest. The 109 automated tests cover the OpenFlow semantics (priority, "
         "wildcards, group types), every detection mechanism, every recovery strategy and the "
-        "acceptance criteria of each version, for example that FRR recovery time is about the "
+        "acceptance criteria of the design, for example that FRR recovery time is about the "
         "detection time, that FA-FRR survives an SRLG double failure that plain FRR does not, "
         "and that re-optimisation is hitless (FA-FRR loses exactly as many packets as plain "
         "FRR). A GitHub Actions workflow runs the tests, the quick experiments and the "
@@ -891,7 +889,7 @@ def ch_setup(R: Report):
         ["State and overhead", "rules, groups, messages, probes on 6–25 switches", "6 topologies"],
         ["Risk-aware routing", "latency vs path failure probability for λ = 0 … 50", "analytic"],
         ["Failure timeline", "one flow, packets delivered per millisecond", "6 apps"],
-    ], "The ten experiments (about 1,000 simulations in total)", widths=[4.2, 8.3, 3.0], size=9.5)
+    ], "The ten experiments (850 simulations in total)", widths=[4.2, 8.3, 3.0], size=9.5)
 
 
 def _md_section_table(section):
@@ -1174,8 +1172,7 @@ def references(R: Report):
 def appendices(R: Report):
     R.h1("APPENDIX A: Running the Project", toc="Appendix A: Running the Project",
          numbered_page_break=True)
-    R.p("The source code, documentation and results are in the project's git repository. "
-        "Each version is a git tag (`git checkout v0.3`).", indent=1.0)
+    R.p("The source code, documentation and results are provided with this report.", indent=1.0)
     R.code("""
 # install and test
 python -m venv .venv && .venv/bin/pip install -e '.[dev,plots]'

@@ -118,26 +118,8 @@ def reoptimisation():
     save(fig, "reoptimisation.png")
 
 
-def roadmap():
-    fig, ax = canvas(11.5, 2.6)
-    steps = [("v0.1", "emulator +\nstatic routing"), ("v0.2", "reactive\nrestoration"),
-             ("v0.3", "fast-failover\nFRR"), ("v0.4", "LOS / BFD /\nLLDP detection"),
-             ("v0.5", "end-to-end\nprotection"), ("v0.6", "FA-FRR"),
-             ("v0.7", "evaluation\nsuite"), ("v0.8", "OS-Ken +\nMininet"), ("v1.0", "release"),
-             ("v1.1", "Mininet\nvalidation")]
-    ax.plot([0.5, 11.0], [1.75, 1.75], color=LINE, lw=3, zorder=1)
-    for i, (v, d) in enumerate(steps):
-        x = 0.6 + i * 1.155
-        c = DKGREEN if v == "v0.6" else BLUE
-        ax.add_patch(plt.Circle((x, 1.75), 0.2, facecolor=c, edgecolor=c, zorder=3))
-        ax.text(x, 2.2, v, ha="center", fontsize=10.5, weight="bold", color=INK)
-        ax.text(x, 1.3, d, ha="center", va="top", fontsize=8.8, color=INK, linespacing=1.3)
-    save(fig, "roadmap.png")
-
-
 if __name__ == "__main__":
     abilene()
     fa_frr_architecture()
     reoptimisation()
-    roadmap()
     print("figures written to", OUT)

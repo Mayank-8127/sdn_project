@@ -3,7 +3,7 @@
 | File | What it is |
 |------|------------|
 | `FA-FRR_Project_Report.docx` / `.pdf` | project report (35 pages): certificate, declaration, abstract, 8 chapters, references, appendix |
-| `FA-FRR_Presentation.pptx` / `.pdf` | 20-slide presentation |
+| `FA-FRR_Presentation.pptx` / `.pdf` | 19-slide presentation |
 
 The first page of each lists the team, the course (Software Defined Networks,
 EC-466) and the guide (Dr. Jagadeesha R B).

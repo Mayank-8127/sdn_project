@@ -76,7 +76,7 @@ def plan_destination(graph: Graph, dst: str, mode: str = "link",
     the destination), as does a switch whose next hop is a cut vertex.
 
     ``detour_exclusions(element)`` may return extra ``(edges, nodes)`` to
-    avoid when computing the detour for ``element`` (v0.6 uses it for
+    avoid when computing the detour for ``element`` (FA-FRR uses it for
     shared-risk groups); if that leaves no path, plain avoidance is used.
     """
     xe, xn = set(excluded_edges), set(excluded_nodes)

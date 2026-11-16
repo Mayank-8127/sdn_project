@@ -1,6 +1,6 @@
 """Failure-Aware Fast Reroute (FA-FRR): the main contribution of this project.
 
-FA-FRR keeps the data-plane speed of local fast reroute (v0.3: fast-failover
+FA-FRR keeps the data-plane speed of local fast reroute (fast-failover
 groups + tagged detours, node protection preferred) and adds a controller
 that *knows how the network fails* (:class:`~ffr.risk.RiskModel`):
 
