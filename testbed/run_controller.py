@@ -33,8 +33,9 @@ def main():
     cfg.CONF(args=[], project="os_ken")
     cfg.CONF.set_override("ofp_tcp_listen_port", args.port)
     print(f"FA-FRR controller listening on tcp/{args.port}, topology {args.topo}")
-    app_manager.AppManager.run_apps(["os_ken.controller.ofp_handler",
-                                     os.path.join(HERE, "ffr_osken_app.py")])
+    # Load the app by module name (HERE is on sys.path): OS-Ken's load-by-file-path
+    # uses importlib's load_module(), which Python 3.15 removed.
+    app_manager.AppManager.run_apps(["os_ken.controller.ofp_handler", "ffr_osken_app"])
 
 
 if __name__ == "__main__":

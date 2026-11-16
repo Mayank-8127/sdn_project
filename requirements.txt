@@ -1,0 +1,4 @@
+# Emulator, experiments and tests. The emulator itself uses only the Python
+# standard library; matplotlib draws the figures and pytest runs the tests.
+matplotlib>=3.5
+pytest>=7
