@@ -7,9 +7,9 @@
 
 Both describe the project as of v0.4: the emulator, reactive restoration,
 fast reroute with link and node protection, and failure detection (loss of
-signal, BFD, LLDP) with gray failures and switch crashes. The guide,
-department and institute fields on the first page are left blank; fill them
-in the `.docx` / `.pptx` files and export to PDF again.
+signal, BFD, LLDP) with gray failures and switch crashes. The first page
+lists the team, the course (Software Defined Networks, EC-466) and the guide
+(Dr. Jagadeesha R B).
 
 Numbers: every Abilene and NSFNET link cut in turn for each strategy, the
 DEN–KSC cut with the controller 1–40 ms away, the DEN–KSC + SNV–DEN double

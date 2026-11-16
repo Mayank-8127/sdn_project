@@ -30,9 +30,11 @@ FIG = HERE / "figures"
 RES = ROOT / "docs" / "results"
 OUT = HERE / "FA-FRR_Project_Report.docx"
 TITLE = "Failure-Aware Fast Rerouting in Software-Defined Networks"
-STUDENTS = [("Mayank Bansal", "23BEC026"), ("Anas Khan", "23BCS083"),
-            ("Shardendu Mishra", "23BCS122"), ("Himanshu Kumar", "23BCS055"),
-            ("Divyanshu", "23BEC017")]
+STUDENTS = [("Mayank Bansal", "23BEC026"), ("Himanshu Kumar", "23BCS055"),
+            ("Anas Khan", "23BCS083"), ("Shardendu Mishra", "23BCS122")]
+COURSE = "Software Defined Networks (EC-466)"
+GUIDE = "Dr. Jagadeesha R B"
+YEAR = "2026–27"
 ACCENT = RGBColor(0x1F, 0x3A, 0x68)
 GRAY = RGBColor(0x55, 0x55, 0x55)
 
@@ -318,11 +320,8 @@ def front_matter(R: Report):
     centered("A PROJECT REPORT", 13, True, GRAY, 4)
     centered("on", 12, after=4, italic=True)
     centered(TITLE, 22, True, ACCENT, 14)
-    centered("Submitted in partial fulfilment of the requirements for the award of the degree of",
-             11.5, after=2, italic=True)
-    centered(_blank_line(40), 12, after=2)
-    centered("in", 11.5, after=2, italic=True)
-    centered(_blank_line(40), 12, after=16)
+    centered("Submitted as part of the course", 11.5, after=2, italic=True)
+    centered(COURSE, 13, True, after=16)
     centered("Submitted by", 13, True, after=6)
     t = d.add_table(rows=1, cols=3)
     t.style = "Table Grid"
@@ -342,46 +341,33 @@ def front_matter(R: Report):
     _set_widths(t, (2.0, 8.5, 5.0))
     centered("", 6, after=10)
     centered("Under the guidance of", 12, italic=True, after=2)
-    centered(_blank_line(36), 12, after=2)
-    centered("(Name and designation of the guide)", 9.5, color=GRAY, after=22, italic=True)
-    centered("[ Institute logo ]", 10, color=GRAY, after=14, italic=True)
-    centered("Department of " + _blank_line(30), 12, True, after=2)
-    centered(_blank_line(46), 12, True, after=2)
-    centered("(Name of the Institute / University)", 9.5, color=GRAY, after=8, italic=True)
-    centered("Academic Year " + "_" * 12, 12, after=0)
+    centered(GUIDE, 13, True, after=2)
+    centered("Course Instructor", 10.5, color=GRAY, after=30, italic=True)
+    centered("Academic Year " + YEAR, 12, after=0)
 
     # ---------------- certificate
     R.page_break()
     R.h1("CERTIFICATE")
     R.p(f"This is to certify that the project report entitled **“{TITLE}”** is a bona fide "
-        "record of the work carried out by the students listed on the title page, in partial "
-        "fulfilment of the requirements for the award of the degree of "
-        f"{_blank_line(30)} in {_blank_line(30)} during the academic year {_blank_line(12)}. "
+        "record of the work carried out by the students listed on the title page as part of "
+        f"the course **{COURSE}** during the academic year {YEAR}. "
         "The work embodied in this report has not been submitted elsewhere for the award of any "
         "other degree.", indent=1.0)
     R.p("", after=60)
-    t = d.add_table(rows=3, cols=2)
-    for col, who in enumerate(("Project Guide", "Head of the Department")):
-        t.cell(0, col).paragraphs[0].add_run("_" * 26)
-        t.cell(1, col).paragraphs[0].add_run(who).bold = True
-        t.cell(2, col).paragraphs[0].add_run("Name: " + "_" * 20)
-        for r in range(3):
-            t.cell(r, col).paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-    R.p("", after=40)
-    t = d.add_table(rows=2, cols=2)
-    t.cell(0, 0).paragraphs[0].add_run("Place: " + "_" * 18)
-    t.cell(1, 0).paragraphs[0].add_run("Date: " + "_" * 19)
-    t.cell(0, 1).paragraphs[0].add_run("External Examiner: " + "_" * 16)
-    t.cell(1, 1).paragraphs[0].add_run("Signature: " + "_" * 22)
-    for c in (t.cell(0, 1), t.cell(1, 1)):
-        c.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    t = d.add_table(rows=3, cols=1)
+    t.cell(0, 0).paragraphs[0].add_run("_" * 26)
+    t.cell(1, 0).paragraphs[0].add_run(GUIDE).bold = True
+    t.cell(2, 0).paragraphs[0].add_run("Course Instructor and Project Guide")
+    for r in range(3):
+        t.cell(r, 0).paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
     # ---------------- declaration
     R.page_break()
     R.h1("DECLARATION")
     R.p(f"We hereby declare that the project report entitled **“{TITLE}”** submitted by us is "
         "an authentic record of our own work carried out under the guidance of "
-        f"{_blank_line(28)}. The results embodied in this report have not been submitted to any "
+        f"**{GUIDE}** as part of the course **{COURSE}**. The results embodied in this report "
+        "have not been submitted to any "
         "other university or institute for the award of any degree or diploma. All sources of "
         "information and software used have been duly acknowledged.", indent=1.0)
     R.p("", after=30)
@@ -399,18 +385,15 @@ def front_matter(R: Report):
         cells[1].paragraphs[0].add_run(roll).font.size = Pt(11.5)
         t.rows[-1].height = Cm(1.0)
     _set_widths(t, (7.0, 4.5, 4.0))
-    R.p("", after=20)
-    R.p("Place: " + "_" * 18, align=WD_ALIGN_PARAGRAPH.LEFT)
-    R.p("Date: " + "_" * 19, align=WD_ALIGN_PARAGRAPH.LEFT)
 
     # ---------------- acknowledgement
     R.page_break()
     R.h1("ACKNOWLEDGEMENT")
-    R.p(f"We express our sincere gratitude to our project guide, {_blank_line(26)}, for the "
-        "constant guidance, encouragement and valuable suggestions throughout this project. "
-        f"We are thankful to the Head of the Department, {_blank_line(26)}, and to all faculty "
-        "members of the department for providing the facilities and support needed to carry "
-        "out this work.", align=WD_ALIGN_PARAGRAPH.LEFT, indent=1.0)
+    R.p(f"We express our sincere gratitude to our course instructor and project guide, "
+        f"**{GUIDE}**, for the constant guidance, encouragement and valuable suggestions "
+        f"throughout this project, carried out as part of the course {COURSE}. We are "
+        "thankful to all faculty members of the department for providing the facilities and "
+        "support needed to carry out this work.", align=WD_ALIGN_PARAGRAPH.LEFT, indent=1.0)
     R.p("We also acknowledge the open-source communities behind Python, OS-Ken/Ryu, Mininet and "
         "Open vSwitch, whose tools made this work possible, and the authors of the research "
         "papers cited in this report. Finally, we thank our families and friends for their "

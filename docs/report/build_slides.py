@@ -23,9 +23,11 @@ ROOT = HERE.parent.parent
 FIG = HERE / "figures"
 RES = ROOT / "docs" / "results"
 OUT = HERE / "FA-FRR_Presentation.pptx"
-STUDENTS = [("Mayank Bansal", "23BEC026"), ("Anas Khan", "23BCS083"),
-            ("Shardendu Mishra", "23BCS122"), ("Himanshu Kumar", "23BCS055"),
-            ("Divyanshu", "23BEC017")]
+STUDENTS = [("Mayank Bansal", "23BEC026"), ("Himanshu Kumar", "23BCS055"),
+            ("Anas Khan", "23BCS083"), ("Shardendu Mishra", "23BCS122")]
+COURSE = "Software Defined Networks (EC-466)"
+GUIDE = "Dr. Jagadeesha R B"
+YEAR = "2026–27"
 
 NAVY = RGBColor(0x1F, 0x3A, 0x68)
 GREEN = RGBColor(0x00, 0x83, 0x00)
@@ -180,8 +182,7 @@ def title_slide(D: Deck):
            "Millisecond recovery that learns how the network fails", 17,
            RGBColor(0xD6, 0xDE, 0xEA), italic=True)
     D.text(s, Inches(0.55), Inches(6.2), Inches(4.3), Inches(0.9),
-           ["Department of ______________________", "Institute ____________________________"],
-           12, RGBColor(0xD6, 0xDE, 0xEA))
+           [COURSE, "Academic Year " + YEAR], 12, RGBColor(0xD6, 0xDE, 0xEA))
 
     D.text(s, Inches(5.8), Inches(0.75), Inches(7), Inches(0.4), "Submitted by", 18, NAVY, True)
     D.table(s, Inches(5.8), Inches(1.3), Inches(7.0), ["S. No.", "Name of the Student", "Roll Number"],
@@ -189,12 +190,9 @@ def title_slide(D: Deck):
             col_w=[1.1, 3.9, 2.0], size=15, row_h=0.52)
     D.text(s, Inches(5.8), Inches(4.75), Inches(7), Inches(0.4), "Under the guidance of", 16,
            MUTED, italic=True)
-    D.text(s, Inches(5.8), Inches(5.15), Inches(7), Inches(0.4),
-           "_______________________________________", 16, INK)
-    D.text(s, Inches(5.8), Inches(5.55), Inches(7), Inches(0.35), "(Name and designation of the guide)",
-           11, MUTED, italic=True)
-    D.text(s, Inches(5.8), Inches(6.3), Inches(7), Inches(0.4),
-           "Academic Year: ______________        Date: ______________", 14, INK)
+    D.text(s, Inches(5.8), Inches(5.15), Inches(7), Inches(0.4), GUIDE, 18, INK, True)
+    D.text(s, Inches(5.8), Inches(5.55), Inches(7), Inches(0.35), "Course Instructor",
+           12, MUTED, italic=True)
 
 
 def agenda(D):

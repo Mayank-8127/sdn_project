@@ -5,3 +5,8 @@ __pycache__/
 /results/
 *.egg-info/
 notes/
+/dist/
+/paper/*
+!/paper/README.md
+!/paper/make_figures.py
+!/paper/*.pdf
