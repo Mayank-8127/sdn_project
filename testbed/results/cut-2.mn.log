@@ -40,14 +40,14 @@ s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11
 *** Stopping 11 hosts
 h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 
 *** Done
-*** topology written to /tmp/ffr_topo.jleC4J.json; start the controller now
+*** topology written to /tmp/ffr_topo.OD3WQN.json; start the controller now
 *** waiting for the controller to install rules
-*** 21:35:08.138 failing DEN-KSC (cut)
-*** 21:35:10.142 restoring DEN-KSC
+*** 05:23:08.580 failing DEN-KSC (cut)
+*** 05:23:10.584 restoring DEN-KSC
 *** results (outage resolution 10 ms)
    hATL -> hDEN  lost=   1/600  longest outage=10 ms
-   hDEN -> hATL  lost=   2/600  longest outage=10 ms
+   hDEN -> hATL  lost=   2/600  longest outage=20 ms
    hHOU -> hDEN  lost=   1/600  longest outage=10 ms
-   hKSC -> hLAX  lost=   2/600  longest outage=10 ms
+   hKSC -> hLAX  lost=   1/600  longest outage=10 ms
    hNYC -> hSEA  lost=   2/600  longest outage=10 ms
-   hSEA -> hNYC  lost=   2/600  longest outage=10 ms
+   hSEA -> hNYC  lost=   1/600  longest outage=10 ms

@@ -74,26 +74,30 @@ scenario, probed pairs whose shortest path crosses a failed link
 
 | scenario | runs | pairs | lost / pair | mean outage | worst outage | controller notified | re-optimisation |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| link cut (DEN-KSC) | 5 | 30 | 1.9 | 14 ms | 30 ms | 8 ms | 29 ms |
-| gray failure, no BFD | 5 | 30 | 179.3 | 1793 ms | 1820 ms | never | never |
-| gray failure, OVS BFD 10 ms | 5 | 30 | 4.0 | 40 ms | 60 ms | never | never |
-| duct cut (DEN-KSC + SNV-DEN), SRLG not declared | 5 | 60 | 3.8 | 38 ms | 60 ms | 7 ms | 47 ms |
-| duct cut (DEN-KSC + SNV-DEN), SRLG declared | 5 | 60 | 2.1 | 20 ms | 30 ms | 8 ms | 46 ms |
+| link cut (DEN-KSC) | 5 | 30 | 1.6 | 12 ms | 20 ms | 6 ms | 36 ms |
+| gray failure, no BFD | 5 | 30 | 181.0 | 1810 ms | 1830 ms | never | never |
+| gray failure, OVS BFD 10 ms | 5 | 30 | 4.2 | 42 ms | 60 ms | never | never |
+| duct cut (DEN-KSC + SNV-DEN), SRLG not declared | 5 | 60 | 4.7 | 46 ms | 90 ms | 9 ms | 51 ms |
+| duct cut (DEN-KSC + SNV-DEN), SRLG declared | 5 | 60 | 2.2 | 20 ms | 40 ms | 8 ms | 52 ms |
 
 * **Link cut:** OVS sees the carrier drop and the fast-failover group
-  switches to the backup locally. Outages are 14 ms on average, about one
+  switches to the backup locally. Outages are 12 ms on average, about one
   10 ms probe plus the packets in flight on the dead link. The controller
-  hears of the cut 8 ms later and installs the next generation of backups in
-  about 30 ms, after traffic has already moved.
+  hears of the cut 6 ms later and has every group of the next generation in
+  place 36 ms after that, while traffic is already on the backup.
 * **Gray failure:** without BFD nothing notices the blackhole, and traffic is
   lost for the whole 1.8 s the failure lasts. With OVS BFD at 10 ms × 3 the
-  fast-failover group reroutes and the outage drops to 40 ms. OVS does not
+  fast-failover group reroutes and the outage drops to 42 ms. OVS does not
   report BFD failures to the controller, so no re-optimisation follows.
 * **Duct cut:** when both links of the duct fail at once, a backup that uses
   the other link of the duct is dead too. If the shared risk group is
-  declared, FA-FRR's backups avoid it, and the mean outage falls from 38 ms
-  to 20 ms (worst case from 60 to 30 ms). Without the declaration those flows
-  wait for the controller's re-optimisation instead.
+  declared, FA-FRR's backups avoid it, and the mean outage falls from 46 ms
+  to 20 ms (worst case from 90 to 40 ms). Without the declaration those flows
+  wait for the controller's re-optimisation (about 50 ms) instead.
+
+The re-optimisation column is measured from the controller's notification to
+the log line `groups installed: protected`, when every group points at the
+new generation; old detour rules are deleted after a further drain time.
 
 ## Notes on OpenFlow and Open vSwitch
 

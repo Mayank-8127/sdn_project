@@ -207,19 +207,36 @@ OK
 
 ### 6.2 Mininet experiments (root required)
 
-```bash
-# Ubuntu/Debian
-sudo apt install mininet openvswitch-switch
-pip install mininet
+The Python that runs the experiments needs both `os-ken` and the Mininet
+package, and Open vSwitch must be running.
 
-# all five scenarios, five runs each; logs and summary in testbed/results/
-testbed/run_experiments.sh "$(which python)" 5
+```bash
+# Ubuntu/Debian: Mininet's mnexec and Open vSwitch from the OS
+sudo apt install mininet openvswitch-switch
+sudo systemctl start openvswitch-switch
+# Arch: openvswitch from the repositories, Mininet from source (AUR)
+#   sudo systemctl start ovsdb-server ovs-vswitchd
+
+# the Mininet Python package in the project's virtual environment
+pip install -r testbed/requirements.txt
+pip install mininet          # or: pip install /path/to/mininet-source-tree
+python -c "import mininet, os_ken"    # must print nothing
 ```
 
-`run_experiments.sh` calls `sudo` for Mininet. It writes one log per run and
-regenerates `testbed/results/summary.md` with `testbed/summarise.py`. To run
-one scenario by hand, or for the scenario options, see `testbed/README.md`.
-The logs of the runs reported in the paper are in `testbed/results/`.
+Then run all five scenarios, five runs each (logs and summary in
+`testbed/results/`):
+
+```bash
+testbed/run_experiments.sh "$(pwd)/.venv/bin/python" 5
+```
+
+`run_experiments.sh` calls `sudo` for Mininet, so it may ask for your
+password. It writes one log per run and regenerates
+`testbed/results/summary.md` with `testbed/summarise.py`. If a run log says
+"Mininet is not installed", the Python passed to the script cannot import
+`mininet`. To run one scenario by hand, or for the scenario options, see
+`testbed/README.md`. The logs of the runs reported in the paper are in
+`testbed/results/`.
 
 ## 7. Rebuild the project report and slides (optional)
 

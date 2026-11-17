@@ -37,7 +37,8 @@ def events(mn: Path, ctl: Path):
 
     Detection: failure injected until the controller hears of it; on a
     fast-failover network the data plane has usually rerouted before that.
-    Re-optimisation: that report until the new generation is active. Only
+    Re-optimisation: that report until the new generation's groups are all
+    installed (the network is protected again). Only
     controller events between failure and restoration count.
     """
     marks = dict((w, ts(t)) for t, w in re.findall(r"\*\*\* (\S+) (failing|restoring)", mn.read_text()))
@@ -54,7 +55,9 @@ def events(mn: Path, ctl: Path):
             continue
         if t_down is None and " DOWN" in line:
             t_down = t
-        elif t_down is not None and re.search(r"gen \d+ active", line):
+        elif t_down is not None and re.search(r"gen \d+ (groups installed|active)", line):
+            # "groups installed": every group rewritten, the network is protected
+            # again (old detour rules are deleted later, after a drain time)
             return ms(t_down - t_fail), ms(t - t_down)
     return (ms(t_down - t_fail) if t_down else None), None
 
