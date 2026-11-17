@@ -1,0 +1,59 @@
+Unable to contact the remote controller at 127.0.0.1:6653
+(5.50ms delay) (5.50ms delay) (8.25ms delay) (8.25ms delay) (2.50ms delay) (2.50ms delay) (7.50ms delay) (7.50ms delay) (11.00ms delay) (11.00ms delay) (4.50ms delay) (4.50ms delay) (5.00ms delay) (5.00ms delay) (3.65ms delay) (3.65ms delay) (5.65ms delay) (5.65ms delay) (1.30ms delay) (1.30ms delay) (3.45ms delay) (3.45ms delay) (4.35ms delay) (4.35ms delay) (5.75ms delay) (5.75ms delay) (1.65ms delay) (1.65ms delay) *** Configuring hosts
+h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 
+*** Starting controller
+c0 
+*** Starting 11 switches
+s1 (5.50ms delay) (8.25ms delay) s2 (5.50ms delay) (2.50ms delay) (7.50ms delay) s3 (8.25ms delay) (7.50ms delay) (4.50ms delay) s4 (2.50ms delay) (11.00ms delay) s5 (11.00ms delay) (5.00ms delay) (5.65ms delay) s6 (4.50ms delay) (5.00ms delay) (3.65ms delay) s7 (3.65ms delay) (1.30ms delay) (3.45ms delay) s8 (5.65ms delay) (3.45ms delay) (4.35ms delay) s9 (1.30ms delay) (5.75ms delay) s10 (4.35ms delay) (1.65ms delay) s11 (5.75ms delay) (1.65ms delay) ...(5.50ms delay) (8.25ms delay) (5.50ms delay) (2.50ms delay) (7.50ms delay) (8.25ms delay) (7.50ms delay) (4.50ms delay) (2.50ms delay) (11.00ms delay) (11.00ms delay) (5.00ms delay) (5.65ms delay) (4.50ms delay) (5.00ms delay) (3.65ms delay) (3.65ms delay) (1.30ms delay) (3.45ms delay) (5.65ms delay) (3.45ms delay) (4.35ms delay) (1.30ms delay) (5.75ms delay) (4.35ms delay) (1.65ms delay) (5.75ms delay) (1.65ms delay) 
+*** Ping: testing ping reachability
+h1 -> X h3 h4 h5 h6 h7 h8 h9 h10 h11 
+h2 -> h1 h3 h4 h5 h6 h7 h8 h9 h10 h11 
+h3 -> h1 h2 h4 h5 h6 h7 h8 h9 h10 h11 
+h4 -> h1 h2 h3 h5 h6 h7 h8 h9 h10 h11 
+h5 -> h1 h2 h3 h4 h6 h7 h8 h9 h10 h11 
+h6 -> h1 h2 h3 h4 h5 h7 h8 h9 h10 h11 
+h7 -> h1 h2 h3 h4 h5 h6 h8 h9 h10 h11 
+h8 -> h1 h2 h3 h4 h5 h6 h7 h9 h10 h11 
+h9 -> h1 h2 h3 h4 h5 h6 h7 h8 h10 h11 
+h10 -> h1 h2 h3 h4 h5 h6 h7 h8 h9 h11 
+h11 -> h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 
+*** Results: 0% dropped (109/110 received)
+*** Ping: testing ping reachability
+h1 -> h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 
+h2 -> h1 h3 h4 h5 h6 h7 h8 h9 h10 h11 
+h3 -> h1 h2 h4 h5 h6 h7 h8 h9 h10 h11 
+h4 -> h1 h2 h3 h5 h6 h7 h8 h9 h10 h11 
+h5 -> h1 h2 h3 h4 h6 h7 h8 h9 h10 h11 
+h6 -> h1 h2 h3 h4 h5 h7 h8 h9 h10 h11 
+h7 -> h1 h2 h3 h4 h5 h6 h8 h9 h10 h11 
+h8 -> h1 h2 h3 h4 h5 h6 h7 h9 h10 h11 
+h9 -> h1 h2 h3 h4 h5 h6 h7 h8 h10 h11 
+h10 -> h1 h2 h3 h4 h5 h6 h7 h8 h9 h11 
+h11 -> h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 
+*** Results: 0% dropped (110/110 received)
+*** Stopping 1 controllers
+c0 
+*** Stopping 25 links
+.........................
+*** Stopping 11 switches
+s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 
+*** Stopping 11 hosts
+h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 
+*** Done
+*** topology written to /tmp/ffr_topo.xe6P9u.json; start the controller now
+*** waiting for the controller to install rules
+*** 14:57:12.229 failing DEN-KSC,SNV-DEN (cut)
+*** 14:57:14.235 restoring DEN-KSC,SNV-DEN
+*** results (probe interval 2 ms requested; outages from reply timestamps)
+   hATL -> hDEN  lost=   3/3000  longest outage=76 ms  probe gap=6.8 ms  bursts: +0ms 76ms x3 +11973ms -1ms x2 +11983ms -2ms x2 +11993ms -3ms x4 +11998ms -2ms x2 +12008ms -3ms x3
+   hCHI -> hLAX  lost=   4/3000  longest outage=48 ms  probe gap=8.8 ms  bursts: -3ms 48ms x4
+   hDEN -> hCHI  lost=   3/3000  longest outage=86 ms  probe gap=9.5 ms  bursts: -8ms 86ms x3 +11976ms -7ms x2 +11978ms -2ms x3 +11986ms -1ms x3 +11994ms -9ms x2 +11996ms -8ms x6 +12003ms -8ms x3
+   hDEN -> hLAX  lost=   3/3000  longest outage=43 ms  probe gap=9.3 ms  bursts: -5ms 43ms x3
+   hHOU -> hDEN  lost=   1/3000  longest outage=55 ms  probe gap=9.6 ms  bursts: +6ms 55ms x1 +11982ms -9ms x1 +11991ms -10ms x3 +11993ms -1ms x2 +12003ms -2ms x2
+   hIND -> hSEA  lost=   3/3000  longest outage=42 ms  probe gap=9.4 ms  bursts: +2ms 42ms x2 +53ms 22ms x1 +94ms -6ms x1 +104ms -6ms x1 +11982ms -1ms x1 +11992ms -6ms x3 +12004ms -8ms x1
+   hKSC -> hSEA  lost=   3/3000  longest outage=46 ms  probe gap=7.2 ms  bursts: -6ms 46ms x2 +48ms 24ms x1 +89ms -3ms x1 +99ms -1ms x2 +11981ms 1ms x1 +11990ms -2ms x2 +11999ms -6ms x1
+   hLAX -> hIND  lost=   4/3000  longest outage=46 ms  probe gap=8.7 ms  bursts: +3ms 46ms x4
+   hNYC -> hSNV  lost=   3/3000  longest outage=35 ms  probe gap=9.5 ms  bursts: +11ms 35ms x3
+   hSEA -> hIND  lost=   2/3000  longest outage=61 ms  probe gap=8.7 ms  bursts: +7ms 61ms x2 +120ms -5ms x1 +130ms -6ms x1 +11980ms -8ms x1 +11987ms -6ms x1 +12000ms -0ms x1 +12010ms -5ms x1
+   hSNV -> hATL  lost=   4/3000  longest outage=21 ms  probe gap=8.9 ms  bursts: +2ms 21ms x2 +32ms 16ms x2
+   hSNV -> hKSC  lost=   5/3000  longest outage=48 ms  probe gap=9.3 ms  bursts: -2ms 48ms x5

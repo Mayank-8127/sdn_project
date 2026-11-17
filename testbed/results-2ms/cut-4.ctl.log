@@ -1,0 +1,57 @@
+FA-FRR controller listening on tcp/6653, topology /tmp/ffr_topo.xe6P9u.json
+14:44:04.879 os_ken.base.app_manager loading app os_ken.controller.ofp_handler
+14:44:04.880 os_ken.base.app_manager loading app ffr_osken_app
+14:44:04.882 os_ken.base.app_manager loading app os_ken.controller.ofp_handler
+14:44:04.882 os_ken.base.app_manager instantiating app os_ken.controller.ofp_handler of OFPHandler
+14:44:04.882 os_ken.base.app_manager instantiating app ffr_osken_app of FailureAwareFRRApp
+14:44:05.338 FailureAwareFRRApp switch SEA connected (1/11)
+14:44:05.339 FailureAwareFRRApp switch SNV connected (2/11)
+14:44:05.402 FailureAwareFRRApp switch DEN connected (3/11)
+14:44:05.402 FailureAwareFRRApp switch LAX connected (4/11)
+14:44:05.467 FailureAwareFRRApp switch HOU connected (5/11)
+14:44:05.467 FailureAwareFRRApp switch KSC connected (6/11)
+14:44:05.467 FailureAwareFRRApp switch IND connected (7/11)
+14:44:05.531 FailureAwareFRRApp switch ATL connected (8/11)
+14:44:05.531 FailureAwareFRRApp switch CHI connected (9/11)
+14:44:05.594 FailureAwareFRRApp switch WDC connected (10/11)
+14:44:05.595 FailureAwareFRRApp switch NYC connected (11/11)
+14:44:05.614 FailureAwareFRRApp FA-FRR gen 1: unusable=[]
+14:44:05.638 FailureAwareFRRApp FA-FRR gen 1 groups installed: protected
+14:44:05.638 FailureAwareFRRApp FA-FRR gen 1 active
+14:44:14.418 FailureAwareFRRApp link DEN-KSC DOWN: data plane already rerouted, re-optimising
+14:44:14.442 FailureAwareFRRApp FA-FRR gen 2: unusable=[['DEN', 'KSC']]
+14:44:14.453 FailureAwareFRRApp FA-FRR gen 2 groups installed: protected
+14:44:14.494 FailureAwareFRRApp FA-FRR gen 2 active
+14:44:16.421 FailureAwareFRRApp link DEN-KSC UP: hold-down 9.9s
+14:44:26.307 FailureAwareFRRApp link DEN-KSC stable: back in service
+14:44:26.334 FailureAwareFRRApp FA-FRR gen 3: unusable=[]
+14:44:26.346 FailureAwareFRRApp FA-FRR gen 3 groups installed: protected
+14:44:26.389 FailureAwareFRRApp FA-FRR gen 3 active
+14:44:42.625 FailureAwareFRRApp link SEA-SNV DOWN: data plane already rerouted, re-optimising
+14:44:42.650 FailureAwareFRRApp FA-FRR gen 4: unusable=[['SEA', 'SNV']]
+14:44:42.663 FailureAwareFRRApp link DEN-SEA DOWN: data plane already rerouted, re-optimising
+14:44:42.687 FailureAwareFRRApp FA-FRR gen 5: unusable=[['DEN', 'SEA'], ['SEA', 'SNV']]
+14:44:42.688 FailureAwareFRRApp link LAX-SNV DOWN: data plane already rerouted, re-optimising
+14:44:42.709 FailureAwareFRRApp FA-FRR gen 6: unusable=[['DEN', 'SEA'], ['LAX', 'SNV'], ['SEA', 'SNV']]
+14:44:42.719 FailureAwareFRRApp link DEN-SNV DOWN: data plane already rerouted, re-optimising
+14:44:42.734 FailureAwareFRRApp FA-FRR gen 7: unusable=[['DEN', 'SEA'], ['DEN', 'SNV'], ['LAX', 'SNV'], ['SEA', 'SNV']]
+14:44:42.734 FailureAwareFRRApp link HOU-LAX DOWN: data plane already rerouted, re-optimising
+14:44:42.749 FailureAwareFRRApp FA-FRR gen 8: unusable=[['DEN', 'SEA'], ['DEN', 'SNV'], ['HOU', 'LAX'], ['LAX', 'SNV'], ['SEA', 'SNV']]
+14:44:42.784 FailureAwareFRRApp link IND-KSC DOWN: data plane already rerouted, re-optimising
+14:44:42.794 FailureAwareFRRApp FA-FRR gen 9: unusable=[['DEN', 'SEA'], ['DEN', 'SNV'], ['HOU', 'LAX'], ['IND', 'KSC'], ['LAX', 'SNV'], ['SEA', 'SNV']]
+14:44:42.795 FailureAwareFRRApp link DEN-KSC DOWN: data plane already rerouted, re-optimising
+14:44:42.806 FailureAwareFRRApp FA-FRR gen 10: unusable=[['DEN', 'KSC'], ['DEN', 'SEA'], ['DEN', 'SNV'], ['HOU', 'LAX'], ['IND', 'KSC'], ['LAX', 'SNV'], ['SEA', 'SNV']]
+14:44:42.806 FailureAwareFRRApp link HOU-KSC DOWN: data plane already rerouted, re-optimising
+14:44:42.812 FailureAwareFRRApp FA-FRR gen 11: unusable=[['DEN', 'KSC'], ['DEN', 'SEA'], ['DEN', 'SNV'], ['HOU', 'KSC'], ['HOU', 'LAX'], ['IND', 'KSC'], ['LAX', 'SNV'], ['SEA', 'SNV']]
+14:44:42.863 FailureAwareFRRApp link ATL-WDC DOWN: data plane already rerouted, re-optimising
+14:44:42.866 FailureAwareFRRApp FA-FRR gen 12: unusable=[['ATL', 'WDC'], ['DEN', 'KSC'], ['DEN', 'SEA'], ['DEN', 'SNV'], ['HOU', 'KSC'], ['HOU', 'LAX'], ['IND', 'KSC'], ['LAX', 'SNV'], ['SEA', 'SNV']]
+14:44:42.866 FailureAwareFRRApp link ATL-IND DOWN: data plane already rerouted, re-optimising
+14:44:42.867 FailureAwareFRRApp FA-FRR gen 13: unusable=[['ATL', 'IND'], ['ATL', 'WDC'], ['DEN', 'KSC'], ['DEN', 'SEA'], ['DEN', 'SNV'], ['HOU', 'KSC'], ['HOU', 'LAX'], ['IND', 'KSC'], ['LAX', 'SNV'], ['SEA', 'SNV']]
+14:44:42.868 FailureAwareFRRApp link ATL-HOU DOWN: data plane already rerouted, re-optimising
+14:44:42.868 FailureAwareFRRApp FA-FRR gen 14: unusable=[['ATL', 'HOU'], ['ATL', 'IND'], ['ATL', 'WDC'], ['DEN', 'KSC'], ['DEN', 'SEA'], ['DEN', 'SNV'], ['HOU', 'KSC'], ['HOU', 'LAX'], ['IND', 'KSC'], ['LAX', 'SNV'], ['SEA', 'SNV']]
+14:44:42.868 FailureAwareFRRApp link CHI-IND DOWN: data plane already rerouted, re-optimising
+14:44:42.869 FailureAwareFRRApp FA-FRR gen 15: unusable=[['ATL', 'HOU'], ['ATL', 'IND'], ['ATL', 'WDC'], ['CHI', 'IND'], ['DEN', 'KSC'], ['DEN', 'SEA'], ['DEN', 'SNV'], ['HOU', 'KSC'], ['HOU', 'LAX'], ['IND', 'KSC'], ['LAX', 'SNV'], ['SEA', 'SNV']]
+14:44:42.968 FailureAwareFRRApp link NYC-WDC DOWN: data plane already rerouted, re-optimising
+14:44:42.968 FailureAwareFRRApp FA-FRR gen 16: unusable=[['ATL', 'HOU'], ['ATL', 'IND'], ['ATL', 'WDC'], ['CHI', 'IND'], ['DEN', 'KSC'], ['DEN', 'SEA'], ['DEN', 'SNV'], ['HOU', 'KSC'], ['HOU', 'LAX'], ['IND', 'KSC'], ['LAX', 'SNV'], ['NYC', 'WDC'], ['SEA', 'SNV']]
+14:44:42.968 FailureAwareFRRApp link CHI-NYC DOWN: data plane already rerouted, re-optimising
+14:44:42.969 FailureAwareFRRApp FA-FRR gen 17: unusable=[['ATL', 'HOU'], ['ATL', 'IND'], ['ATL', 'WDC'], ['CHI', 'IND'], ['CHI', 'NYC'], ['DEN', 'KSC'], ['DEN', 'SEA'], ['DEN', 'SNV'], ['HOU', 'KSC'], ['HOU', 'LAX'], ['IND', 'KSC'], ['LAX', 'SNV'], ['NYC', 'WDC'], ['SEA', 'SNV']]

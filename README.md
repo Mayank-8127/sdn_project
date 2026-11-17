@@ -148,7 +148,7 @@ reads `docs/results/*.csv` and writes the paper's figures to `paper/figures/`.
 | Table VIII (state) | `state.csv`, peak, tag and link-load columns of the other CSVs | `python -m ffr experiment state single_link` |
 | Table VIII, OpenFlow 1.3 column | controller against protocol stubs | `python testbed/of13_state.py` (needs `testbed/requirements.txt`) |
 | Re-protection time of one cut | controller log | `python -m ffr run --topo abilene --app fa-frr --fail DEN-KSC@0.45 --rate 500 --stop 1.2 -v` |
-| Table IX (Mininet) | `testbed/results*/summary.md` | `testbed/run_experiments.sh` (Section 6) |
+| Table IX (Mininet) | `testbed/results-2ms/summary.md`, `testbed/results-wan/summary.md` | `testbed/run_experiments.sh` (Section 6) |
 
 ### 5.4 Data, parameters and seeds
 
@@ -225,17 +225,11 @@ pip install mininet          # or: pip install /path/to/mininet-source-tree
 python -c "import mininet, os_ken"    # must print nothing
 ```
 
-Then run all five scenarios, five runs each (logs and summary in
-`testbed/results/`):
-
-```bash
-testbed/run_experiments.sh "$(pwd)/.venv/bin/python" 5
-```
-
-The paper also reports runs with 2 ms probes, without and with a 5 ms one-way
-delay on the OpenFlow channel (a `tc netem` delay on loopback that only
-affects the controller's port). Do not run them while the emulator suite is
-running, since that would distort the timings:
+Then run all five scenarios, five runs each, in the two settings the paper
+reports (Table IX): probes every 2 ms, without and with a 5 ms one-way delay
+on the OpenFlow channel (a `tc netem` delay on loopback that only affects the
+controller's port). Do not run them while the emulator suite is running,
+since that would distort the timings:
 
 ```bash
 PING_MS=2 RESULTS=testbed/results-2ms testbed/run_experiments.sh "$(pwd)/.venv/bin/python" 5
@@ -247,11 +241,11 @@ PING_MS=2 CTRL_DELAY_MS=5 RESULTS=testbed/results-wan testbed/run_experiments.sh
 
 `run_experiments.sh` calls `sudo` for Mininet, so it may ask for your
 password. It writes one log per run and regenerates
-`testbed/results/summary.md` with `testbed/summarise.py`. If a run log says
+`summary.md` in the results folder with `testbed/summarise.py`. If a run log says
 "Mininet is not installed", the Python passed to the script cannot import
 `mininet`. To run one scenario by hand, or for the scenario options, see
 `testbed/README.md`. The logs of the runs reported in the paper are in
-`testbed/results/`.
+`testbed/results-2ms/` and `testbed/results-wan/`.
 
 ## 7. Rebuild the project report and slides (optional)
 

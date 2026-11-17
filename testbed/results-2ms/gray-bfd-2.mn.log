@@ -1,0 +1,53 @@
+Unable to contact the remote controller at 127.0.0.1:6653
+(5.50ms delay) (5.50ms delay) (8.25ms delay) (8.25ms delay) (2.50ms delay) (2.50ms delay) (7.50ms delay) (7.50ms delay) (11.00ms delay) (11.00ms delay) (4.50ms delay) (4.50ms delay) (5.00ms delay) (5.00ms delay) (3.65ms delay) (3.65ms delay) (5.65ms delay) (5.65ms delay) (1.30ms delay) (1.30ms delay) (3.45ms delay) (3.45ms delay) (4.35ms delay) (4.35ms delay) (5.75ms delay) (5.75ms delay) (1.65ms delay) (1.65ms delay) *** Configuring hosts
+h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 
+*** Starting controller
+c0 
+*** Starting 11 switches
+s1 (5.50ms delay) (8.25ms delay) s2 (5.50ms delay) (2.50ms delay) (7.50ms delay) s3 (8.25ms delay) (7.50ms delay) (4.50ms delay) s4 (2.50ms delay) (11.00ms delay) s5 (11.00ms delay) (5.00ms delay) (5.65ms delay) s6 (4.50ms delay) (5.00ms delay) (3.65ms delay) s7 (3.65ms delay) (1.30ms delay) (3.45ms delay) s8 (5.65ms delay) (3.45ms delay) (4.35ms delay) s9 (1.30ms delay) (5.75ms delay) s10 (4.35ms delay) (1.65ms delay) s11 (5.75ms delay) (1.65ms delay) ...(5.50ms delay) (8.25ms delay) (5.50ms delay) (2.50ms delay) (7.50ms delay) (8.25ms delay) (7.50ms delay) (4.50ms delay) (2.50ms delay) (11.00ms delay) (11.00ms delay) (5.00ms delay) (5.65ms delay) (4.50ms delay) (5.00ms delay) (3.65ms delay) (3.65ms delay) (1.30ms delay) (3.45ms delay) (5.65ms delay) (3.45ms delay) (4.35ms delay) (1.30ms delay) (5.75ms delay) (4.35ms delay) (1.65ms delay) (5.75ms delay) (1.65ms delay) 
+*** Ping: testing ping reachability
+h1 -> X h3 h4 h5 h6 h7 h8 h9 h10 h11 
+h2 -> h1 h3 h4 h5 h6 h7 h8 h9 h10 h11 
+h3 -> h1 h2 h4 h5 h6 h7 h8 h9 h10 h11 
+h4 -> h1 h2 h3 h5 h6 h7 h8 h9 h10 h11 
+h5 -> h1 h2 h3 h4 h6 h7 h8 h9 h10 h11 
+h6 -> h1 h2 h3 h4 h5 h7 h8 h9 h10 h11 
+h7 -> h1 h2 h3 h4 h5 h6 h8 h9 h10 h11 
+h8 -> h1 h2 h3 h4 h5 h6 h7 h9 h10 h11 
+h9 -> h1 h2 h3 h4 h5 h6 h7 h8 h10 h11 
+h10 -> h1 h2 h3 h4 h5 h6 h7 h8 h9 h11 
+h11 -> h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 
+*** Results: 0% dropped (109/110 received)
+*** Ping: testing ping reachability
+h1 -> h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 
+h2 -> h1 h3 h4 h5 h6 h7 h8 h9 h10 h11 
+h3 -> h1 h2 h4 h5 h6 h7 h8 h9 h10 h11 
+h4 -> h1 h2 h3 h5 h6 h7 h8 h9 h10 h11 
+h5 -> h1 h2 h3 h4 h6 h7 h8 h9 h10 h11 
+h6 -> h1 h2 h3 h4 h5 h7 h8 h9 h10 h11 
+h7 -> h1 h2 h3 h4 h5 h6 h8 h9 h10 h11 
+h8 -> h1 h2 h3 h4 h5 h6 h7 h9 h10 h11 
+h9 -> h1 h2 h3 h4 h5 h6 h7 h8 h10 h11 
+h10 -> h1 h2 h3 h4 h5 h6 h7 h8 h9 h11 
+h11 -> h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 
+*** Results: 0% dropped (110/110 received)
+*** Stopping 1 controllers
+c0 
+*** Stopping 25 links
+.........................
+*** Stopping 11 switches
+s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 
+*** Stopping 11 hosts
+h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 
+*** Done
+*** topology written to /tmp/ffr_topo.xe6P9u.json; start the controller now
+*** waiting for the controller to install rules
+*** 14:49:26.606 failing DEN-KSC (silent)
+*** 14:49:28.613 restoring DEN-KSC
+*** results (probe interval 2 ms requested; outages from reply timestamps)
+   hATL -> hDEN  lost=   4/3000  longest outage=75 ms  probe gap=5.1 ms  bursts: +13ms 75ms x4 +2677ms -0ms x1 +2687ms -0ms x1 +3499ms 3ms x2 +3509ms -2ms x2 +3519ms -2ms x3
+   hDEN -> hATL  lost=   6/3000  longest outage=95 ms  probe gap=6.1 ms  bursts: +2ms 95ms x6 +2706ms -1ms x1 +2716ms -1ms x1 +3482ms 2ms x2 +3492ms -2ms x2 +3502ms -3ms x3
+   hHOU -> hDEN  lost=   3/3000  longest outage=63 ms  probe gap=9.6 ms  bursts: +5ms 63ms x3 +2670ms -8ms x1 +2680ms -8ms x1 +3501ms -1ms x2 +3511ms -1ms x2 +3521ms -2ms x2
+   hKSC -> hLAX  lost=   6/3000  longest outage=83 ms  probe gap=9.8 ms  bursts: -2ms 83ms x6 +2669ms -10ms x1 +2679ms -10ms x1
+   hNYC -> hSEA  lost=   6/3000  longest outage=88 ms  probe gap=8.3 ms  bursts: +9ms 88ms x6 +2682ms -6ms x1 +2691ms -6ms x1 +3519ms 1ms x1 +3529ms 0ms x1
+   hSEA -> hNYC  lost=   6/3000  longest outage=88 ms  probe gap=8.3 ms  bursts: +9ms 88ms x6 +2710ms -6ms x1 +2720ms -6ms x1 +3497ms 0ms x1 +3507ms -0ms x1

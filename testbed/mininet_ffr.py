@@ -102,21 +102,29 @@ def parse_ping(out: str, count: int, t_fail: float):
     """Outage statistics from timestamped ping output (``ping -D``).
 
     ``ping -i`` only sets a minimum gap between probes, and the real pace on a
-    busy host is slower, so outages are measured from reply *timestamps*, not
-    from sequence numbers: the longest gap between consecutive replies minus the
-    typical (median) gap. Returns (probes lost, longest outage in s, median
-    probe gap in s, bursts as (start relative to t_fail in s, outage in s,
-    probes lost)).
+    busy host is slower, so outages are measured from timestamps, not from
+    sequence numbers. Each reply's *send* time is its timestamp minus its
+    round-trip time; gaps between reply timestamps would also include the
+    extra delay of a longer detour. An outage is the longest gap between the
+    send times of consecutive answered probes, minus the typical (median)
+    gap. A gap counts as a loss burst only if probes inside it never came
+    back (replies can also arrive out of order when a path gets shorter).
+    Returns (probes lost, longest outage in s, median probe gap in s, bursts
+    as (start relative to t_fail in s, outage in s, probes lost)).
     """
-    replies = sorted((float(t), int(seq)) for t, seq in
-                     re.findall(r"^\[(\d+\.\d+)\].*icmp_seq=(\d+)", out, re.M))
-    lost = count - len({seq for _, seq in replies})
-    if len(replies) < 2:
+    sent = sorted((float(t) - float(rtt) / 1000, int(seq)) for t, seq, rtt in
+                  re.findall(r"^\[(\d+\.\d+)\].*icmp_seq=(\d+).*time=([\d.]+)", out, re.M))
+    got = {seq for _, seq in sent}
+    lost = count - len(got)
+    if len(sent) < 2:
         return lost, float("inf"), 0.0, []
-    gaps = [(b[0] - a[0], a, b) for a, b in zip(replies, replies[1:])]
+    gaps = [(b[0] - a[0], a, b) for a, b in zip(sent, sent[1:])]
     base = statistics.median(g for g, _, _ in gaps)
-    bursts = [(a[0] - t_fail, g - base, b[1] - a[1] - 1) for g, a, b in gaps
-              if b[1] - a[1] > 1]
+    bursts = []
+    for g, a, b in gaps:
+        missing = sum(1 for q in range(a[1] + 1, b[1]) if q not in got)
+        if missing:
+            bursts.append((a[0] - t_fail, g - base, missing))
     longest = max((o for _, o, _ in bursts), default=0.0)
     return lost, longest, base, bursts
 
@@ -235,7 +243,7 @@ def run_experiment(args, net, sw, hosts, links, topo, interval):
         else:
             net.configLinkStatus(sw[a].name, sw[b].name, "up")
     print(f"*** results (probe interval {1000 * interval:g} ms requested; outages from "
-          "reply timestamps)")
+          "send timestamps)")
     for (x, y), p in procs.items():
         p.wait()
         f = files[(x, y)]
@@ -244,7 +252,7 @@ def run_experiment(args, net, sw, hosts, links, topo, interval):
         f.close()
         # each burst: when it started relative to the failure, its length, probes lost
         when = " ".join(f"{1000 * t:+.0f}ms {1000 * o:.0f}ms x{n}" for t, o, n in bursts)
-        print(f"  {x:>5} -> {y:<5} lost={lost:4d}/{count}  longest outage={1000 * outage:.0f} ms"
+        print(f"  {x:>5} -> {y:<5} lost={lost:4d}/{count}  send-time outage={1000 * outage:.0f} ms"
               f"  probe gap={1000 * base:.1f} ms  bursts: {when}")
     if args.cli:
         from mininet.cli import CLI

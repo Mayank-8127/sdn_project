@@ -6,6 +6,15 @@
 Per scenario (all runs pooled): probed host pairs, mean packets lost per pair,
 mean and worst longest outage, how long the controller took to hear of the
 failure and how long its re-optimisation took.
+
+Outages: logs written by the current mininet_ffr.py carry the send-time outage
+(gap between the send times of the answered probes around the loss burst).
+Logs from the earlier version carry the gap between reply timestamps, which also
+includes the extra round-trip time of a longer detour; for those the outage is
+estimated as the probes lost in the longest burst times the measured probe gap,
+which agrees with the send-time gap to within one probe gap. Bursts with a
+negative length come from replies reordered when a path got shorter, not from
+loss, and are ignored.
 """
 
 from __future__ import annotations
@@ -24,17 +33,31 @@ LABEL = {
     "srlg-unaware": "duct cut (DEN-KSC + SNV-DEN), SRLG not declared",
     "srlg-aware": "duct cut (DEN-KSC + SNV-DEN), SRLG declared",
 }
-PROBE = re.compile(r"lost=\s*(\d+)/(\d+)\s+longest outage=(\d+) ms"
+PROBE = re.compile(r"lost=\s*(\d+)/(\d+)\s+(longest|send-time) outage=(\d+) ms"
                    r"(?:\s+probe gap=([\d.]+) ms)?(?:\s+bursts:([^\n]*))?")
+BURST = re.compile(r"([+-]\d+)ms (-?\d+)ms x(\d+)")
 STAMP = re.compile(r"^(\d\d:\d\d:\d\d\.\d{3}) ")
 
 
 def probes(path: Path):
-    # (lost, sent, longest outage ms, loss bursts or None, probe gap ms or None);
-    # old logs have no bursts or probe gap
-    return [(int(l), int(n), int(o), len(re.findall(r"x\d+", b)) if b else None,
-             float(g) if g else None)
-            for l, n, o, g, b in PROBE.findall(path.read_text())]
+    """Per probed pair: (lost, sent, outage ms, loss bursts, probe gap ms).
+
+    Bursts and probe gap are None in logs that predate them.
+    """
+    rows = []
+    for l, n, kind, o, g, b in PROBE.findall(path.read_text()):
+        out, bursts, gap = float(o), None, float(g) if g else None
+        if b:
+            real = [(int(t), int(d), int(k)) for t, d, k in BURST.findall(b)]
+            if kind == "longest":
+                # reply-gap log: keep bursts that lasted longer than a probe gap;
+                # outage = probes lost in the longest one x the probe gap
+                real = [r for r in real if r[1] > (gap or 0)]
+                if real and gap:
+                    out = max(real, key=lambda r: r[1])[2] * gap
+            bursts = len(real)
+        rows.append((int(l), int(n), out, bursts, gap))
+    return rows
 
 
 def events(mn: Path, ctl: Path):
@@ -99,7 +122,7 @@ def main(folder: str):
         g = f"{statistics.mean(gaps):.1f} ms" if gaps else "-"
         print(f"| {LABEL[name]} | {len(mn)} | {len(rows)} | {g} | "
               f"{statistics.mean(r[0] for r in rows):.1f} | {b} | {statistics.mean(out):.0f} ms | "
-              f"{max(out)} ms | {fmt(det)} | {fmt(reo)} |")
+              f"{max(out):.0f} ms | {fmt(det)} | {fmt(reo)} |")
 
 if __name__ == "__main__":
     main(sys.argv[1] if len(sys.argv) > 1 else "testbed/results")
