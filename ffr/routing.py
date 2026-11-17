@@ -240,3 +240,36 @@ def disjoint_paths(g: Graph, src: str, dst: str, node_disjoint: bool = False,
         paths.append(collapse(p))
     paths.sort(key=lambda p: (path_cost(g, p), p))
     return paths[0], paths[1]
+
+
+def k_shortest_paths(g: Graph, src: str, dst: str, excluded_edges: Iterable[Edge] = ()):
+    """Yield simple paths from ``src`` to ``dst`` in order of increasing cost (Yen)."""
+    xe = set(excluded_edges)
+    first = shortest_path(g, src, dst, excluded_edges=xe)
+    if first is None:
+        return
+    found = [first]
+    yield first
+    candidates: list[tuple[float, list[str]]] = []
+    seen = {tuple(first)}
+    while True:
+        last = found[-1]
+        for i in range(len(last) - 1):
+            spur, root = last[i], last[:i + 1]
+            removed = set(xe)
+            for p in found:
+                if p[:i + 1] == root:
+                    removed.add(edge(p[i], p[i + 1]))
+            tail = shortest_path(g, spur, dst, excluded_edges=removed,
+                                 excluded_nodes=set(root[:-1]))
+            if tail is None:
+                continue
+            path = root[:-1] + tail
+            if tuple(path) not in seen:
+                seen.add(tuple(path))
+                heapq.heappush(candidates, (path_cost(g, path), path))
+        if not candidates:
+            return
+        _, best = heapq.heappop(candidates)
+        found.append(best)
+        yield best

@@ -24,12 +24,14 @@ LABEL = {
     "srlg-unaware": "duct cut (DEN-KSC + SNV-DEN), SRLG not declared",
     "srlg-aware": "duct cut (DEN-KSC + SNV-DEN), SRLG declared",
 }
-PROBE = re.compile(r"lost=\s*(\d+)/(\d+)\s+longest outage=(\d+) ms")
+PROBE = re.compile(r"lost=\s*(\d+)/(\d+)\s+longest outage=(\d+) ms(?:\s+bursts:([^\n]*))?")
 STAMP = re.compile(r"^(\d\d:\d\d:\d\d\.\d{3}) ")
 
 
 def probes(path: Path):
-    return [(int(l), int(n), int(o)) for l, n, o in PROBE.findall(path.read_text())]
+    # (lost, sent, longest outage ms, number of loss bursts or None for old logs)
+    return [(int(l), int(n), int(o), len(re.findall(r"x\d+", b)) if b else None)
+            for l, n, o, b in PROBE.findall(path.read_text())]
 
 
 def events(mn: Path, ctl: Path):
@@ -76,9 +78,9 @@ def fmt(values):
 
 def main(folder: str):
     root = Path(folder)
-    print("| scenario | runs | pairs | lost / pair | mean outage | worst outage "
+    print("| scenario | runs | pairs | lost / pair | bursts / pair | mean outage | worst outage "
           "| controller notified | re-optimisation |")
-    print("|---|---:|---:|---:|---:|---:|---:|---:|")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for name in ORDER:
         mn = sorted(root.glob(f"{name}-*.mn.log"))
         if not mn:
@@ -88,8 +90,10 @@ def main(folder: str):
         det = [d for d, _ in ev if d is not None]
         reo = [r for _, r in ev if r is not None]
         out = [r[2] for r in rows]
+        bursts = [r[3] for r in rows if r[3] is not None]
+        b = f"{statistics.mean(bursts):.1f}" if bursts else "-"
         print(f"| {LABEL[name]} | {len(mn)} | {len(rows)} | "
-              f"{statistics.mean(r[0] for r in rows):.1f} | {statistics.mean(out):.0f} ms | "
+              f"{statistics.mean(r[0] for r in rows):.1f} | {b} | {statistics.mean(out):.0f} ms | "
               f"{max(out)} ms | {fmt(det)} | {fmt(reo)} |")
 
 if __name__ == "__main__":

@@ -27,7 +27,8 @@ from __future__ import annotations
 from ..detection import PathBFD
 from ..openflow import Bucket, Group, Match, Output, PopTag, SetTag
 from ..risk import RiskModel
-from ..routing import disjoint_paths, edge, path_edges, shortest_path
+from ..routing import (disjoint_paths, k_shortest_paths, path_cost, path_edges,
+                       shortest_path)
 from .static import PRIMARY, PRIO_PRIMARY, StaticRouting
 
 PRIO_INGRESS = 150
@@ -74,7 +75,7 @@ class PathProtection(StaticRouting):
                 if p1 is None:
                     continue
                 if self.srlg_aware:
-                    p2 = self._srlg_backup(p1, p2)
+                    p1, p2 = self._srlg_backup(p1, p2)
                 self.paths[(s, t)] = (p1, p2)
                 for p in (p1, p2):
                     if p is None:
@@ -91,27 +92,45 @@ class PathProtection(StaticRouting):
                 self.install_ingress(src, dst, s, *self.paths[(s, t)])
 
     def _srlg_backup(self, p1, p2):
-        """Replace a backup that shares a risk group with the primary.
+        """Minimum-cost primary/backup pair that is node- and SRLG-disjoint.
 
-        Bhandari's pair is disjoint but SRLG-oblivious. If the backup uses a
-        link that shares an SRLG with a primary link, take instead the
-        shortest path that avoids the primary's links, their SRLG peers and
-        (if node-disjoint) the primary's transit switches. If none exists the
-        Bhandari backup is kept. (Exact SRLG-disjoint path pairs are NP-hard
-        in general; this two-step heuristic is the usual practical choice.)
+        Bhandari's pair is disjoint but SRLG-oblivious; if it is already
+        SRLG-disjoint it is optimal. Otherwise primaries are enumerated in
+        order of increasing cost (Yen), each with its shortest backup that
+        avoids the primary's links, their SRLG peers and (if node-disjoint)
+        its transit switches. The search stops when a primary alone costs as
+        much as the best pair minus the cheapest possible backup, so the pair
+        returned is optimal. Returns (p1, p2); p2 is None if no such pair
+        exists (then the Bhandari pair is kept).
         """
-        primary = set(path_edges(p1))
-        risky = set()
-        for e in primary:
-            risky |= self._risk.shared_risk(e)
-        if p2 is not None and not (set(path_edges(p2)) & risky):
-            return p2
-        alt = shortest_path(self.graph, p1[0], p1[-1], excluded_edges=primary | risky,
-                            excluded_nodes=set(p1[1:-1]) if self.node_disjoint else ())
-        if alt is None:
-            return p2
+        def conflict(a, b):
+            risky = set()
+            for e in path_edges(a):
+                risky |= self._risk.shared_risk(e)
+            return bool(set(path_edges(b)) & risky)
+
+        if p2 is None or not conflict(p1, p2):
+            return p1, p2
+        s, t = p1[0], p1[-1]
+        floor = path_cost(self.graph, shortest_path(self.graph, s, t))
+        best = None
+        for prim in k_shortest_paths(self.graph, s, t):
+            c1 = path_cost(self.graph, prim)
+            if best is not None and c1 + floor >= best[0]:
+                break
+            avoid = set(path_edges(prim))
+            for e in list(avoid):
+                avoid |= self._risk.shared_risk(e)
+            back = shortest_path(self.graph, s, t, excluded_edges=avoid,
+                                 excluded_nodes=set(prim[1:-1]) if self.node_disjoint else ())
+            if back is not None:
+                total = c1 + path_cost(self.graph, back)
+                if best is None or total < best[0]:
+                    best = (total, prim, back)
+        if best is None:
+            return p1, p2
         self.srlg_backups += 1
-        return alt
+        return best[1], best[2]
 
     def install_ingress(self, src: str, dst: str, s: str, p1, p2) -> None:
         q1 = self.port(s, p1[1])

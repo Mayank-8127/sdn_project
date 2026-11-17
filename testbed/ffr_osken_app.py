@@ -31,6 +31,7 @@ The topology file is written by ``testbed/mininet_ffr.py``.
 
 from __future__ import annotations
 
+import heapq
 import json
 import os
 import sys
@@ -117,7 +118,10 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
         self.gen_drain: dict[int, float] = {}
         self.primary_done: set[tuple] = set()
         self.gids: dict[tuple, int] = {}
+        self.next_gid = 0
         self.tags: dict[tuple, int] = {}
+        self.free_tags: list[int] = []
+        self.next_tag = 2
         self.barriers: dict[int, tuple[set, object]] = {}
         self._barrier_seq = 0
         self.plans = {}
@@ -131,13 +135,32 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
         return time.time()
 
     def tag_for(self, key) -> int:
+        """VLAN id of (element, SRLG variant) in the current generation.
+
+        Ids 2..4001 come from a pool; a generation's ids go back to the pool
+        when its rules are deleted, and the smallest free id is reused first.
+        """
         k = (key, self.generation)
         if k not in self.tags:
-            self.tags[k] = (len(self.tags) % 4000) + 2  # VLAN ids 2..4001
+            if self.free_tags:
+                self.tags[k] = heapq.heappop(self.free_tags)
+            else:
+                if self.next_tag > 4001:
+                    raise RuntimeError("out of VLAN ids for detour tags")
+                self.tags[k] = self.next_tag
+                self.next_tag += 1
         return self.tags[k]
 
+    def free_generation_tags(self, gen):
+        for k in [k for k in self.tags if k[1] == gen]:
+            heapq.heappush(self.free_tags, self.tags.pop(k))
+
     def gid_for(self, sw: str, host: str, via: str | None = None) -> int:
-        return self.gids.setdefault((sw, host, via), len(self.gids) + 1)
+        # a counter, not len(self.gids): deleted groups must not free ids still in use
+        if (sw, host, via) not in self.gids:
+            self.next_gid += 1
+            self.gids[(sw, host, via)] = self.next_gid
+        return self.gids[(sw, host, via)]
 
     def send(self, sw: str, msg) -> None:
         self.datapaths[sw].send_msg(msg)
@@ -187,18 +210,21 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
             risky |= self.risk.shared_risk(edge(el[1], nb))
         return risky, ()
 
+    def reachable(self, excluded):
+        return sum(len(next_hops_to(self.graph, s, excluded_edges=excluded))
+                   for s in set(self.topo.hosts.values()))
+
     def release_held_if_needed(self):
-        """Release held-down links if a destination is unreachable without them."""
+        """Release held-down links, least risky first, while a destination needs them."""
         if not self.held:
             return
-        for s in sorted(set(self.topo.hosts.values())):
-            if len(next_hops_to(self.graph, s, excluded_edges=set(self.down))) > \
-                    len(next_hops_to(self.graph, s, excluded_edges=self.unusable())):
-                for e, timer in self.held.items():
-                    timer.cancel()
-                    self.logger.info("link %s: hold-down overridden", "-".join(sorted(e)))
-                self.held.clear()
-                return
+        target = self.reachable(set(self.down))
+        now = self.now()
+        for e in sorted(self.held, key=lambda e: (self.risk.penalty(e, now), sorted(e))):
+            if self.reachable(self.unusable()) >= target:
+                break
+            self.held.pop(e).cancel()
+            self.logger.info("link %s: hold-down overridden", "-".join(sorted(e)))
 
     def plan_all(self):
         return {h: plan_destination(self.graph, s, "node", excluded_edges=self.unusable(),
@@ -338,7 +364,32 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
             for sw in sorted(self.gen_switches.pop(old)):
                 if sw in self.datapaths:
                     self.delete_cookie(sw, DETOUR_BASE + old)
+            self.free_generation_tags(old)
+        self.remove_stale_inport()
         self.logger.info("FA-FRR gen %d active", gen)
+
+    def remove_stale_inport(self):
+        """Delete U-turn rules and groups for neighbours that are no longer a
+        backup's first hop (rule first, so it never points at a missing group)."""
+        for (u, host), vias in sorted(self.vias.items()):
+            hp = self.plans.get(host, {}).get(u)
+            current = hp.detour[1] if hp is not None and hp.protected else None
+            if u not in self.datapaths:
+                continue
+            dp = self.datapaths[u]
+            p, ofp = dp.ofproto_parser, dp.ofproto
+            ip = self.hosts[host]["ip"]
+            for via in sorted(vias - {current}):
+                match = p.OFPMatch(in_port=self.ports[(u, via)], eth_type=ETH_IPV4, ipv4_dst=ip)
+                self.send(u, p.OFPFlowMod(dp, command=ofp.OFPFC_DELETE_STRICT,
+                                          priority=PRIO_PRIMARY_IN_PORT, match=match,
+                                          table_id=0, out_port=ofp.OFPP_ANY,
+                                          out_group=ofp.OFPG_ANY))
+                gid = self.gids.pop((u, host, via))
+                self.send(u, p.OFPGroupMod(dp, ofp.OFPGC_DELETE, ofp.OFPGT_FF, gid, []))
+                self.groups_installed.discard((u, gid))
+                self.primary_done.discard((u, host, via))
+                vias.discard(via)
 
     # ------------------------------------------------------------ events
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
@@ -409,6 +460,11 @@ class FailureAwareFRRApp(app_manager.OSKenApp if hasattr(app_manager, "OSKenApp"
                 return
             self.down.discard(e)
             hd = self.risk.holddown(e, now, self.base_holddown)
+            if self.reachable(self.unusable()) > self.reachable(self.unusable() | {e}):
+                self.logger.info("link %s UP: needed for reachability, no hold-down",
+                                 "-".join(sorted(e)))
+                self.reoptimize()
+                return
             self.logger.info("link %s UP: hold-down %.1fs", "-".join(sorted(e)), hd)
             self.held[e] = hub.spawn_after(hd, self.release, e)
 

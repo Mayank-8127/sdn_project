@@ -191,3 +191,18 @@ def test_failure_pins_backups_next_to_the_link(app):
     assert pinned
     assert all(any(isinstance(a, parser.OFPActionPushVlan) for a in m.buckets[0].actions)
                for m in pinned)
+
+
+def test_tags_and_stale_uturn_groups_are_recycled(app):
+    answer_barriers(app)
+    gen1_tags = set(app.tags.values())
+    port_status(app, "DEN", "KSC")
+    port_status(app, "KSC", "DEN")
+    answer_barriers(app)
+    # only the live generation keeps tags, and freed ids are reused first
+    assert {k[1] for k in app.tags} == {app.generation}
+    assert set(app.tags.values()) <= gen1_tags | set(range(2, 2 + 2 * len(gen1_tags)))
+    # every remaining U-turn group belongs to a current backup's first hop
+    for (u, host), vias in app.vias.items():
+        hp = app.plans[host].get(u)
+        assert vias <= ({hp.detour[1]} if hp is not None and hp.protected else set())

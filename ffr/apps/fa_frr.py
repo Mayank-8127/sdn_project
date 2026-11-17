@@ -52,6 +52,8 @@ from .frr import PRIO_DETOUR, LocalFRR
 from .static import PRIMARY, PRIO_PRIMARY
 
 DETOUR_BASE = 1000  # detour cookies are DETOUR_BASE + generation
+MAX_TAGS = 4094       # a 12-bit VLAN id (1..4094); tags are recycled per generation
+PRIO_IN_PORT = PRIO_PRIMARY + 1  # OpenFlow 1.3 U-turn rules: above primaries, below detours
 
 
 class FailureAwareFRR(LocalFRR):
@@ -63,9 +65,20 @@ class FailureAwareFRR(LocalFRR):
                  holddown: float = 0.2, risk_aware: bool = True, srlg_aware: bool = True,
                  reoptimize: bool = True, adaptive_holddown: bool = True,
                  ordered_update: bool = True, pin_backups: bool = True,
-                 p_max: float = 0.99, **kw):
+                 p_max: float = 0.99, coincidence: float = 0.05, of13_inport: bool = False,
+                 **kw):
         super().__init__(net, **kw)
-        self.risk = RiskModel(net.topo, half_life, flap_penalty, correlation, p_max)
+        self.risk = RiskModel(net.topo, half_life, flap_penalty, correlation, p_max, coincidence)
+        # of13_inport: also install the OpenFlow 1.3 OFPP_IN_PORT group and
+        # (in_port, dst) rule per protected (switch, destination), as the
+        # testbed controller does, so that update timing includes them
+        self.of13_inport = of13_inport
+        self.vias: dict[tuple[str, str], set[str]] = {}
+        self._inport_gids: dict[tuple[str, str, str], int] = {}
+        self._free_tags: list[int] = []
+        self._next_tag = 1
+        self.tags_peak = 0
+        self.holddown_skipped = 0
         self.lam = lam
         self.base_holddown = holddown
         self.adaptive_holddown = adaptive_holddown
@@ -112,24 +125,51 @@ class FailureAwareFRR(LocalFRR):
             detour_exclusions=self._srlg_exclusions if self.srlg_aware else None)
 
     def tag_for(self, key: tuple) -> int:
-        # fresh tags per generation: in-flight packets on old detours keep
-        # following the old rules until those are deleted
-        return super().tag_for((key, self.generation))
+        """Tag of (element, SRLG variant) in the current generation.
+
+        Fresh tags per generation, so in-flight packets on old detours keep
+        following the old rules until those are deleted. Tags come from a
+        pool of MAX_TAGS ids; a generation's tags return to the pool when its
+        rules are deleted (phase 3), and the smallest free id is reused first.
+        """
+        k = (key, self.generation)
+        t = self.tags.get(k)
+        if t is None:
+            import heapq
+            if self._free_tags:
+                t = heapq.heappop(self._free_tags)
+            else:
+                t = self._next_tag
+                self._next_tag += 1
+                if t > MAX_TAGS:
+                    raise RuntimeError("out of detour tags")
+            self.tags[k] = t
+            self.tags_peak = max(self.tags_peak, len(self.tags))
+        return t
+
+    def _free_generation_tags(self, gen: int) -> None:
+        import heapq
+        for k in [k for k in self.tags if k[1] == gen]:
+            heapq.heappush(self._free_tags, self.tags.pop(k))
+
+    def _reachable(self, excluded) -> int:
+        """Number of (switch, destination switch) pairs connected without ``excluded``."""
+        return sum(len(next_hops_to(self.graph, hsw, excluded_edges=excluded))
+                   for hsw in set(self.host_switch.values()))
 
     def _release_held_if_needed(self) -> None:
-        """Release held-down links if some destination needs them to be reachable."""
+        """Release held-down links, least risky first, while some destination needs them."""
         if not self.held:
             return
-        for hsw in sorted(set(self.host_switch.values())):
-            without = next_hops_to(self.graph, hsw, excluded_edges=self.unusable())
-            with_held = next_hops_to(self.graph, hsw, excluded_edges=set(self.down_links))
-            if len(with_held) > len(without):
-                for e, timer in sorted(self.held.items(), key=lambda kv: sorted(kv[0])):
-                    timer.cancel()
-                    self.note(f"link {'-'.join(sorted(e))}: hold-down overridden (needed for reachability)")
-                self.held.clear()
-                self.holddown_overrides += 1
-                return
+        target = self._reachable(set(self.down_links))
+        now = self.sim.now
+        order = sorted(self.held, key=lambda e: (self.risk.penalty(e, now), sorted(e)))
+        for e in order:
+            if self._reachable(self.unusable()) >= target:
+                break
+            self.held.pop(e).cancel()
+            self.holddown_overrides += 1
+            self.note(f"link {'-'.join(sorted(e))}: hold-down overridden (needed for reachability)")
 
     # -- installation (make-before-break) ----------------------------------------------
     def install_all_routes(self) -> None:
@@ -243,11 +283,54 @@ class FailureAwareFRR(LocalFRR):
                 self._primary_done.add((u, host))
             self.installed[(u, host)] = content
             touched.add(u)
+        if self.of13_inport:
+            for u, host in rounds[0]:
+                self._install_inport(u, host)
         rest = rounds[1:]
         if self.ordered_update:
             self.barrier(touched, lambda: self._run_rounds(gen, rest))
         else:
             self._run_rounds(gen, rest)
+
+    def _inport_buckets(self, u: str, host: str, pinned: bool = False):
+        p, q, t = self.installed[(u, host)]
+        buckets = [] if pinned else [Bucket((Output(p),), watch_port=p)]
+        if q is not None:
+            buckets.append(Bucket((SetTag(t), Output(q)), watch_port=q))
+        return buckets
+
+    def _install_inport(self, u: str, host: str, pinned: bool = False) -> None:
+        """OpenFlow 1.3 U-turn support: a packet arriving from the backup's first
+        hop must leave through OFPP_IN_PORT, so it gets its own FF group selected
+        by an (in_port, dst) rule. Vias of earlier generations keep being
+        updated so that their rules never point at a stale group. (The emulator
+        lets a packet leave through its ingress port, so this only adds the
+        messages and state of a real switch.)"""
+        hp = self.plans[host][u]
+        vias = self.vias.setdefault((u, host), set())
+        if hp.protected:
+            vias.add(hp.detour[1])
+        for via in sorted(vias):
+            gid = self._inport_gids.get((u, host, via))
+            new = gid is None
+            if new:
+                gid = self._inport_gids[(u, host, via)] = 100000 + len(self._inport_gids)
+            # the group first: a rule must never point at a missing group
+            self.install_group(u, gid, self._inport_buckets(u, host, pinned))
+            if new:
+                self.install(u, Match(dst=host, in_port=self.port(u, via)), [Group(gid)],
+                             PRIO_IN_PORT, PRIMARY)
+
+    def _remove_stale_inport(self) -> None:
+        """Delete U-turn rules and groups for neighbours that are no longer a
+        backup's first hop (rule first, so it never points at a missing group)."""
+        for (u, host), vias in sorted(self.vias.items()):
+            hp = self.plans.get(host, {}).get(u)
+            current = hp.detour[1] if hp is not None and hp.protected else None
+            for via in sorted(vias - {current}):
+                self.remove(u, Match(dst=host, in_port=self.port(u, via)))
+                self.remove_group(u, self._inport_gids.pop((u, host, via)))
+                vias.discard(via)
 
     def _protected(self, gen: int) -> None:
         if gen != self.generation:
@@ -266,6 +349,8 @@ class FailureAwareFRR(LocalFRR):
             for sw in sorted(self.gen_switches.pop(old)):
                 self.remove(sw, cookie=DETOUR_BASE + old)
             self.gen_drain.pop(old, None)
+            self._free_generation_tags(old)
+        self._remove_stale_inport()
         self.note(f"gen={gen} active")
 
     # -- reacting to failures ------------------------------------------------------------
@@ -291,6 +376,12 @@ class FailureAwareFRR(LocalFRR):
                 hd = self.risk.holddown(e, now, self.base_holddown)
             else:
                 hd = self.base_holddown
+            if hd > 0 and self._reachable(self.unusable()) > self._reachable(self.unusable() | {e}):
+                # the link reconnects a destination that is unreachable now:
+                # use it at once instead of holding it down
+                self.holddown_skipped += 1
+                self.note(f"link {'-'.join(sorted(e))} up: needed for reachability, no hold-down")
+                hd = 0
             if hd <= 0:
                 self._schedule_reopt()
                 return
@@ -315,6 +406,10 @@ class FailureAwareFRR(LocalFRR):
                 continue
             self.install_group(u, self.gid_for(u, host), [Bucket((SetTag(t), Output(q)),
                                                                  watch_port=q)])
+            if self.of13_inport and (u, host) in self.vias:
+                for via in sorted(self.vias[(u, host)]):
+                    self.install_group(u, self._inport_gids[(u, host, via)],
+                                       self._inport_buckets(u, host, pinned=True))
             self.pinned += 1
 
     def _release(self, e: Edge) -> None:

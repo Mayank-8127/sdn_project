@@ -97,16 +97,36 @@ def stamp():
     return time.strftime("%H:%M:%S", time.localtime(t)) + f".{int(t * 1000) % 1000:03d}"
 
 
-def parse_ping(out: str, count: int):
+def parse_ping(out: str, count: int, interval: float = PING_INTERVAL):
+    """(packets lost, longest run of consecutive losses in s, runs as (first, last) seq)."""
     seqs = {int(m) for m in re.findall(r"icmp_seq=(\d+)", out)}
     lost = [s for s in range(1, count + 1) if s not in seqs]
-    run = best = 0
-    prev = None
+    runs: list[list[int]] = []
     for s in lost:
-        run = run + 1 if prev == s - 1 else 1
-        best = max(best, run)
-        prev = s
-    return len(lost), best * PING_INTERVAL
+        if runs and runs[-1][1] == s - 1:
+            runs[-1][1] = s
+        else:
+            runs.append([s, s])
+    best = max((b - a + 1 for a, b in runs), default=0)
+    return len(lost), best * interval, runs
+
+
+def control_delay(port: int, ms: float, on: bool = True) -> None:
+    """Delay the OpenFlow channel (TCP ``port`` on loopback) by ``ms`` each way.
+
+    A prio qdisc on ``lo`` sends only packets to or from the controller port
+    to a netem band; everything else on loopback is untouched.
+    """
+    import subprocess
+    run = lambda cmd: subprocess.run(cmd.split(), check=False, capture_output=True)
+    run("tc qdisc del dev lo root")
+    if not on:
+        return
+    run("tc qdisc add dev lo root handle 1: prio bands 4 priomap " + "0 " * 15 + "0")
+    run(f"tc qdisc add dev lo parent 1:4 handle 40: netem delay {ms}ms")
+    for d in ("dport", "sport"):
+        run(f"tc filter add dev lo parent 1: protocol ip prio 1 u32 match ip {d} {port} 0xffff "
+            "flowid 1:4")
 
 
 def main():
@@ -125,7 +145,12 @@ def main():
     ap.add_argument("--controller", default="127.0.0.1:6653")
     ap.add_argument("--topo-file", default="/tmp/ffr_topo.json")
     ap.add_argument("--cli", action="store_true", help="drop into the Mininet CLI at the end")
+    ap.add_argument("--ping-ms", type=float, default=1000 * PING_INTERVAL,
+                    help="probe interval in ms (outage resolution); below 200 ms needs root")
+    ap.add_argument("--ctrl-delay-ms", type=float, default=0.0,
+                    help="one-way delay added to the OpenFlow channel (tc netem on lo)")
     args = ap.parse_args()
+    interval = args.ping_ms / 1000
 
     setLogLevel("info")
     topo = T.get(args.topo).add_host_per_switch()
@@ -143,8 +168,19 @@ def main():
         link = net.linksBetween(hosts[h], sw[topo.hosts[h]])[0]
         return port_of(link, sw[topo.hosts[h]])
 
+    if args.ctrl_delay_ms > 0:
+        control_delay(int(port or 6653), args.ctrl_delay_ms)
+        print(f"*** OpenFlow channel delayed by {args.ctrl_delay_ms} ms each way")
     export(topo, switch_port, host_port, args.topo_file)
     print(f"*** topology written to {args.topo_file}; start the controller now")
+    try:
+        run_experiment(args, net, sw, hosts, links, topo, interval)
+    finally:
+        if args.ctrl_delay_ms > 0:
+            control_delay(int(port or 6653), 0, on=False)
+
+
+def run_experiment(args, net, sw, hosts, links, topo, interval):
     net.start()
     net.staticArp()
     if args.bfd:
@@ -165,11 +201,11 @@ def main():
     crossing = [(x, y) for x in names for y in names if x != y and cut &
                 set(path_edges(shortest_path(g, topo.hosts[x], topo.hosts[y])))]
     pairs = crossing[:: max(1, len(crossing) // args.pairs)][:args.pairs]
-    count = int(args.duration / PING_INTERVAL)
+    count = int(args.duration / interval)
     procs = {}
     for x, y in pairs:
         procs[(x, y)] = hosts[x].popen(
-            ["ping", "-n", "-i", str(PING_INTERVAL), "-c", str(count), "-W", "1",
+            ["ping", "-n", "-i", f"{interval:g}", "-c", str(count), "-W", "1",
              hosts[y].IP()])
     time.sleep(args.fail_at)
     print(f"*** {stamp()} failing {args.fail} ({'silent' if args.silent else 'cut'})")
@@ -185,11 +221,15 @@ def main():
             silent_fail(link, False)
         else:
             net.configLinkStatus(sw[a].name, sw[b].name, "up")
-    print("*** results (outage resolution 10 ms)")
+    print(f"*** results (outage resolution {1000 * interval:g} ms)")
     for (x, y), p in procs.items():
         out = p.communicate()[0].decode()
-        lost, outage = parse_ping(out, count)
-        print(f"  {x:>5} -> {y:<5} lost={lost:4d}/{count}  longest outage={1000 * outage:.0f} ms")
+        lost, outage, runs = parse_ping(out, count, interval)
+        # when each burst of lost probes was sent, relative to the failure
+        when = " ".join(f"{1000 * ((a - 1) * interval - args.fail_at):+.0f}ms x{b - a + 1}"
+                        for a, b in runs)
+        print(f"  {x:>5} -> {y:<5} lost={lost:4d}/{count}  longest outage={1000 * outage:.0f} ms"
+              f"  bursts: {when}")
     if args.cli:
         from mininet.cli import CLI
         CLI(net)

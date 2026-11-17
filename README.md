@@ -21,7 +21,7 @@ learns how the network fails and keeps the backups up to date. It has:
 * **controller strategies**: `static`, `reactive`, `frr-link`, `frr-node`,
   `frr-srlg`, `e2e`, `e2e-srlg` and the proposed `fa-frr` (plus FA-FRR
   ablations that switch off one mechanism each, used by the experiments);
-* an **evaluation suite** of 3439 simulations on the Abilene and NSFNET
+* an **evaluation suite** of 4634 simulations on the Abilene and NSFNET
   backbones that regenerates every result in the paper;
 * a port of FA-FRR to a real **OpenFlow 1.3 controller** (OS-Ken) for
   Mininet and Open vSwitch, with the results of the Mininet runs.
@@ -65,7 +65,7 @@ draws the figures and `pytest` runs the tests.
 python -m pytest -q
 ```
 
-Expected: `109 passed` in about a minute.
+Expected: `129 passed` in about a minute.
 
 ## 4. Run one scenario
 
@@ -109,7 +109,7 @@ python -m ffr topos
 python -m ffr experiment --out results
 ```
 
-This runs the 3439 simulations on all CPU cores (about 31 minutes on 16 cores)
+This runs the 4634 simulations on all CPU cores (about 41 minutes on 16 cores)
 and writes into `results/`: one CSV file per experiment, the figures, and
 `REPORT.md` with every summary table. The copy shipped with the project is in
 `docs/results/`. The emulator is deterministic: every table in the new
@@ -122,7 +122,8 @@ differ (relative difference below 1e-14), because Python 3.12 changed how
 `python -m ffr experiment --quick --out results-quick` runs a reduced suite
 in about 2 minutes. One experiment alone: `python -m ffr experiment srlg --out results`
 (names: `timeline single_link node_crash gray bfd_tradeoff srlg sequential
-flapping flapping_long gap srlg_followup risk_dynamic state risk_tradeoff`).
+flapping flapping_long gap loops srlg_followup risk_dynamic install_time duct_repair
+sensitivity state risk_tradeoff`).
 
 ### 5.2 Paper figures
 
@@ -139,14 +140,15 @@ reads `docs/results/*.csv` and writes the paper's figures to `paper/figures/`.
 | Fig. 2 (timeline) | `docs/results/timeline.csv`, `timeline.png` | `python -m ffr experiment timeline` |
 | Figs. 3–4, Table III | `single_link.csv`, `node_crash.csv`, `srlg.csv`, `sequential.csv` | `python -m ffr experiment single_link node_crash srlg sequential` |
 | Fig. 5 (gap sweep) | `gap.csv` | `python -m ffr experiment gap` |
+| Fig. 6 (re-protection time) | `install_time.csv` (planning times in `REPORT.md`) | `python -m ffr experiment install_time` |
 | Table IV (loops) | `loops.csv` | `python -m ffr experiment loops` |
-| Table V, Fig. 6 | `gray.csv`, `bfd_tradeoff.csv` | `python -m ffr experiment gray bfd_tradeoff` |
-| Table VI (flapping) | `flapping.csv`, `flapping_long.csv` | `python -m ffr experiment flapping flapping_long` |
-| Fig. 7, Table VII | `risk_tradeoff.csv`, `risk_dynamic.csv`, `srlg_followup.csv` | `python -m ffr experiment risk_tradeoff risk_dynamic srlg_followup` |
-| Table VIII (state) | `state.csv`, peak and link-load columns of `single_link.csv` | `python -m ffr experiment state single_link` |
-| OpenFlow 1.3 state (Sec. VI-H) | controller over TCP | Section 6.1, `testbed/fake_switches.py` |
-| Re-protection time (Sec. VI-B) | controller log | `python -m ffr run --topo abilene --app fa-frr --fail DEN-KSC@0.45 --rate 500 --stop 1.2 -v` |
-| Table IX (Mininet) | `testbed/results/summary.md` | `testbed/run_experiments.sh` (Section 6) |
+| Table V, Fig. 7 | `gray.csv`, `bfd_tradeoff.csv` | `python -m ffr experiment gray bfd_tradeoff` |
+| Table VI (flapping), sensitivity | `flapping.csv`, `flapping_long.csv`, `sensitivity.csv` | `python -m ffr experiment flapping flapping_long sensitivity` |
+| Fig. 8, Table VII, duct repair | `risk_tradeoff.csv`, `risk_dynamic.csv`, `srlg_followup.csv`, `duct_repair.csv` | `python -m ffr experiment risk_tradeoff risk_dynamic srlg_followup duct_repair` |
+| Table VIII (state) | `state.csv`, peak, tag and link-load columns of the other CSVs | `python -m ffr experiment state single_link` |
+| Table VIII, OpenFlow 1.3 column | controller against protocol stubs | `python testbed/of13_state.py` (needs `testbed/requirements.txt`) |
+| Re-protection time of one cut | controller log | `python -m ffr run --topo abilene --app fa-frr --fail DEN-KSC@0.45 --rate 500 --stop 1.2 -v` |
+| Table IX (Mininet) | `testbed/results*/summary.md` | `testbed/run_experiments.sh` (Section 6) |
 
 ### 5.4 Data, parameters and seeds
 
@@ -180,7 +182,7 @@ pip install -r testbed/requirements.txt
 python -m pytest -q testbed/test_osken_app.py
 ```
 
-Expected: `5 passed`. These tests serialise every controller message to the
+Expected: `7 passed`. These tests serialise every controller message to the
 OpenFlow wire format.
 
 The controller can also be run against simulated switches over real TCP. In
@@ -228,6 +230,19 @@ Then run all five scenarios, five runs each (logs and summary in
 
 ```bash
 testbed/run_experiments.sh "$(pwd)/.venv/bin/python" 5
+```
+
+The paper also reports runs with 2 ms probes, without and with a 5 ms one-way
+delay on the OpenFlow channel (a `tc netem` delay on loopback that only
+affects the controller's port). Do not run them while the emulator suite is
+running, since that would distort the timings:
+
+```bash
+PING_MS=2 RESULTS=testbed/results-2ms testbed/run_experiments.sh "$(pwd)/.venv/bin/python" 5
+```
+
+```bash
+PING_MS=2 CTRL_DELAY_MS=5 RESULTS=testbed/results-wan testbed/run_experiments.sh "$(pwd)/.venv/bin/python" 5
 ```
 
 `run_experiments.sh` calls `sudo` for Mininet, so it may ask for your

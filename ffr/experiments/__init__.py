@@ -33,14 +33,19 @@ SUMMARY_COLS = ["topo", "app", "runs", "survival_pct", "dead_flows", "lost_pkts"
                 "peak_flow_entries", "looped_pkts", "max_link_flows_before",
                 "max_link_flows_after"]
 COLS = {
+    "srlg": ["topo", "kind", "app", "runs", "survival_pct", "dead_flows", "lost_pkts",
+             "mean_outage_ms", "max_outage_ms", "stretch", "affected_flows", "peak_flow_entries",
+             "looped_pkts", "max_link_flows_before", "max_link_flows_after"],
+    "sensitivity": ["study", "h0_ms", "delta", "rho", "lam", "runs", "lost_pkts",
+                    "flows_hit_last", "stretch"],
     "gap": ["topo", "app", "gap_ms", "runs", "survival_pct", "dead_flows", "lost_pkts",
             "mean_outage_ms"],
     "flapping_long": ["pattern", "app", "runs", "survival_pct", "lost_pkts", "mean_outage_ms",
                       "max_outage_ms", "stretch", "looped_pkts", "peak_flow_entries"],
     "risk_dynamic": ["topo", "app", "runs", "survival_pct", "affected_flows", "lost_pkts",
                      "mean_outage_ms", "mean_path_delay_ms", "stretch"],
-    "srlg_followup": ["topo", "app", "runs", "survival_pct", "affected_flows", "lost_pkts",
-                      "mean_outage_ms", "stretch"],
+    "srlg_followup": ["topo", "app", "runs", "survival_pct", "affected_flows", "flows_hit_last",
+                      "pkts_lost_last", "lost_pkts", "mean_outage_ms", "stretch"],
 }
 
 

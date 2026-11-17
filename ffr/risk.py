@@ -79,7 +79,7 @@ class RiskModel:
         """
         self.failures[e] = self.failures.get(e, 0) + 1
         shared = self._shared.pop(e, None)
-        if shared is not None and now - shared[1] <= self.coincidence:
+        if shared is not None and now - shared[1] < self.coincidence:
             # e was just charged as the SRLG peer of a co-failing link: this is
             # the same physical event, so replace that share by e's own penalty
             self._add_penalty(e, -shared[0] * 0.5 ** ((now - shared[1]) / self.half_life), now)
@@ -89,7 +89,7 @@ class RiskModel:
             if other in down:
                 continue
             last = self._shared.get(other)
-            if last is not None and now - last[1] <= self.coincidence:
+            if last is not None and now - last[1] < self.coincidence:
                 continue  # already charged for this event
             self._shared[other] = (amount, now)
             self._add_penalty(other, amount, now)

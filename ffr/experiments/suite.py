@@ -92,6 +92,8 @@ def aggregate(rows, by=("topo", "app")) -> list[dict]:
             "max_link_flows_before": round(sum(r.get("max_link_flows_before", 0) for r in rs) / n, 1),
             "max_link_flows_after": round(sum(r.get("max_link_flows_after", 0) for r in rs) / n, 1),
             "mean_path_delay_ms": round(sum(r.get("mean_path_delay_ms", 0) for r in rs) / n, 3),
+            "flows_hit_last": round(sum(r.get("flows_hit_last", 0) for r in rs) / n, 2),
+            "pkts_lost_last": round(sum(r.get("pkts_lost_last", 0) for r in rs) / n, 1),
         })
     return out
 
@@ -209,14 +211,25 @@ def exp_bfd_tradeoff(quick=False, workers=None) -> Experiment:
         rows, summary)
 
 
-def srlg_pairs(topo_name: str, k: int | None, seed: int = 3):
-    """Pairs of links meeting at a switch (e.g. sharing a building or duct)
-    whose joint failure leaves the network connected."""
+def srlg_pairs(topo_name: str, k: int | None, seed: int = 3, kind: str = "incident"):
+    """Pairs of links whose joint failure leaves the network connected.
+
+    ``incident``: the two links meet at a switch (a duct leaving one PoP).
+    ``remote``: the two links share no switch (two links crossing the same
+    right-of-way somewhere else).
+    """
     topo = T.get(topo_name)
     pairs = []
-    for n in topo.switches:
-        inc = sorted(tuple(sorted((n, m))) for m in topo.neighbors(n))
-        for l1, l2 in itertools.combinations(inc, 2):
+    if kind == "incident":
+        for n in topo.switches:
+            inc = sorted(tuple(sorted((n, m))) for m in topo.neighbors(n))
+            for l1, l2 in itertools.combinations(inc, 2):
+                if connected_without(topo_name, edges=[frozenset(l1), frozenset(l2)]):
+                    pairs.append((l1, l2))
+    else:
+        for l1, l2 in itertools.combinations(links_of(topo_name), 2):
+            if set(l1) & set(l2):
+                continue
             if connected_without(topo_name, edges=[frozenset(l1), frozenset(l2)]):
                 pairs.append((l1, l2))
     return sample(pairs, k, seed)
@@ -230,16 +243,19 @@ def exp_srlg(quick=False, workers=None) -> Experiment:
     topos = ["abilene"] if quick else MAIN_TOPOS
     cases = []
     for t in topos:
-        for l1, l2 in srlg_pairs(t, 4 if quick else 15):
-            for v in SRLG_VARIANTS:
-                cases.append(vcase(t, v, [link_fail(*l1), link_fail(*l2)],
-                                   srlgs=[("duct", [l1, l2])],
-                                   labels={"failure": f"{'-'.join(l1)}+{'-'.join(l2)}"}))
+        for kind in ["incident", "remote"]:
+            for l1, l2 in srlg_pairs(t, 4 if quick else 15, kind=kind):
+                for v in SRLG_VARIANTS:
+                    cases.append(vcase(t, v, [link_fail(*l1), link_fail(*l2)],
+                                       srlgs=[("duct", [l1, l2])],
+                                       labels={"kind": kind,
+                                               "failure": f"{'-'.join(l1)}+{'-'.join(l2)}"}))
     rows = run_cases(cases, workers)
     return Experiment(
         "srlg", "Correlated (SRLG) double failures",
         "Two links that share a risk group (declared in the topology) fail at the same "
-        "instant.", rows, aggregate(rows))
+        "instant. Incident pairs meet at a switch; remote pairs share no switch.",
+        rows, aggregate(rows, by=("topo", "kind", "app")))
 
 
 SEQ_VARIANTS = ["reactive", "frr-node", "e2e", "fa-frr", "fa-frr-noreopt"]
@@ -317,7 +333,7 @@ def exp_risk_tradeoff(quick=False, workers=None) -> Experiment:
         g = Graph.from_topology(topo)
         for lam in lams:
             w = lambda u, v: risk.weight(edge(u, v), 0.0, lam)
-            delays, fails = [], []
+            delays, fails, load = [], [], {}
             for d in topo.switches:
                 nh = next_hops_to(g, d, weight=w)
                 for s in topo.switches:
@@ -328,9 +344,13 @@ def exp_risk_tradeoff(quick=False, workers=None) -> Experiment:
                         path.append(nh[path[-1]])
                     delays.append(sum(g.weight(a, b) for a, b in zip(path, path[1:])))
                     fails.append(1 - risk.path_survival(path, 0.0))
+                    for a, b in zip(path, path[1:]):
+                        load[edge(a, b)] = load.get(edge(a, b), 0) + 1
             rows.append({"topo": t, "lam": lam,
                          "mean_path_delay_ms": round(1000 * sum(delays) / len(delays), 3),
-                         "mean_path_fail_prob_pct": round(100 * sum(fails) / len(fails), 3)})
+                         "mean_path_fail_prob_pct": round(100 * sum(fails) / len(fails), 3),
+                         "max_link_paths": max(load.values()),
+                         "links_used": len(load)})
     return Experiment(
         "risk_tradeoff", "Risk-aware routing trade-off",
         "Analytic (no simulation): primary paths minimise delay/mean_delay + λ·(−ln(1−p)) "
@@ -504,6 +524,146 @@ def exp_srlg_followup(quick=False, workers=None) -> Experiment:
         rows, aggregate(rows))
 
 
+RULE_TIMES_MS = [1, 2.5, 5, 10, 33]
+INSTALL_T_FAIL = 12.0
+
+
+def exp_install_time(quick=False, workers=None) -> Experiment:
+    """Re-protection time against per-rule installation time, with and without
+    the OpenFlow 1.3 OFPP_IN_PORT groups and rules."""
+    import time as _time
+    from ..protection import plan_destination
+    cases = []
+    times = [1, 10] if quick else RULE_TIMES_MS
+    for t in (["abilene"] if quick else MAIN_TOPOS):
+        links = sample(links_of(t), 3 if quick else (8 if t == "grid5x5" else None))
+        for ms in times:
+            for of13 in [False, True]:
+                for a, b in links:
+                    # the cut comes once even the slowest initial installation is done
+                    # (about 9 s on the grid at 33 ms per rule); light traffic, long run
+                    cases.append(vcase(t, "fa-frr", [link_fail(a, b, t=INSTALL_T_FAIL)],
+                                       net_kw={"rule_install_time": ms / 1000},
+                                       app_kw={"of13_inport": of13},
+                                       start=INSTALL_T_FAIL - 0.2, stop=INSTALL_T_FAIL + 8.0,
+                                       rate=10.0,
+                                       labels={"rule_ms": ms, "of13": of13,
+                                               "failure": f"{a}-{b}"}))
+    rows = run_cases(cases, workers)
+    summary = []
+    for key in sorted({(r["topo"], r["rule_ms"], r["of13"]) for r in rows},
+                      key=lambda k: (MAIN_TOPOS.index(k[0]), k[1], k[2])):
+        rs = [r for r in rows if (r["topo"], r["rule_ms"], r["of13"]) == key]
+        rp = [r["reprotect_ms"] for r in rs if r["reprotect_ms"] is not None]
+        summary.append({"topo": key[0], "rule_ms": key[1], "of13_inport": key[2],
+                        "runs": len(rs),
+                        "initial_install_ms_max": _max(r["initial_install_ms"] for r in rs),
+                        "reprotect_ms_mean": _mean(rp),
+                        "reprotect_ms_max": _max(rp),
+                        "ctrl_msgs": round(sum(r["ctrl_msgs"] for r in rs) / len(rs)),
+                        "flow_entries": round(sum(r["flow_entries"] for r in rs) / len(rs)),
+                        "groups": round(sum(r["group_entries"] for r in rs) / len(rs))})
+    # wall-clock time of planning all destinations (Algorithm 1) in this
+    # Python implementation, for comparison with T_comp; machine dependent
+    plan_ms = {}
+    for t in MAIN_TOPOS:
+        g = Graph.from_topology(T.get(t))
+        best = float("inf")
+        for _ in range(3):
+            t0 = _time.perf_counter()
+            for d in g.nodes:
+                plan_destination(g, d, "node")
+            best = min(best, _time.perf_counter() - t0)
+        plan_ms[t] = round(1000 * best, 1)
+    return Experiment(
+        "install_time", "Re-protection time and rule installation time",
+        "One link is cut; time from the cut until every group of the new generation is "
+        "installed, for 1-33 ms per rule (hardware switches take 2.5-33 ms), with and "
+        "without the OpenFlow 1.3 OFPP_IN_PORT groups and rules. Planning wall-clock "
+        f"time (all destinations, this machine, Python): {plan_ms}.",
+        rows, summary, extra={"plan_ms": plan_ms})
+
+
+def exp_duct_repair(quick=False, workers=None) -> Experiment:
+    """Both links of a duct fail together and are repaired 300 ms later: the
+    coincidence window decides whether each is charged once or 1+rho times."""
+    cases = []
+    for t in (["abilene"] if quick else ["abilene", "nsfnet"]):
+        for l1, l2 in srlg_pairs(t, 4 if quick else 15):
+            for name, w in [("W=50ms", 0.05), ("W=0", 0.0)]:
+                c = vcase(t, "fa-frr", [link_fail(*l1, restore=T_FAIL + 0.3),
+                                        link_fail(*l2, restore=T_FAIL + 0.3)],
+                          srlgs=[("duct", [l1, l2])], stop=2.0,
+                          app_kw={"coincidence": w},
+                          labels={"window": name,
+                                  "failure": f"{'-'.join(l1)}+{'-'.join(l2)}"})
+                cases.append(c)
+    rows = run_cases(cases, workers)
+    summary = []
+    for t in sorted({r["topo"] for r in rows}):
+        for name in ["W=50ms", "W=0"]:
+            rs = [r for r in rows if r["topo"] == t and r["window"] == name]
+            summary.append({"topo": t, "window": name, "runs": len(rs),
+                            "holddown_ms_mean": _mean(r["holddown_ms"] for r in rs),
+                            "back_in_service_ms": _mean(r["back_in_service_ms"] for r in rs),
+                            "lost_pkts": round(sum(r["lost"] for r in rs) / len(rs), 1),
+                            "stretch": round(sum(r["stretch"] for r in rs) / len(rs), 3)})
+    return Experiment(
+        "duct_repair", "Duct cut and repair: the coincidence window",
+        "Both links of a declared SRLG fail at once and come back 300 ms later. With "
+        "W=50 ms each is charged one penalty; with W=0 each is also charged its peer's "
+        "correlated share, so its hold-down is longer.", rows, summary)
+
+
+def exp_sensitivity(quick=False, workers=None) -> Experiment:
+    """Sensitivity to the hand-chosen parameters h0, delta (flapping) and rho, lambda
+    (correlated follow-up failures)."""
+    cases = []
+    down, up, n = FLAP_PATTERNS["slow (40/300 ms)"]
+    period = (down + up) / 1000
+    stop = T_FAIL + n * period + 1.5
+    for h0 in ([0.1, 0.4] if quick else [0.05, 0.1, 0.2, 0.4, 0.8]):
+        for delta in ([0.3] if quick else [0.1, 0.3, 0.6]):
+            for a, b in sample(links_of("abilene"), 3 if quick else None):
+                flaps = [link_fail(a, b, T_FAIL + period * i, T_FAIL + period * i + down / 1000)
+                         for i in range(n)]
+                c = vcase("abilene", "fa-frr", flaps, stop=stop,
+                          app_kw={"holddown": h0, "flap_penalty": delta},
+                          labels={"study": "flapping", "h0_ms": int(1000 * h0), "delta": delta,
+                                  "failure": f"{a}-{b}"})
+                cases.append(c)
+    for t in (["abilene"] if quick else ["abilene", "nsfnet"]):
+        for l1, l2 in srlg_pairs(t, 3 if quick else 15):
+            for rho in ([0.5] if quick else [0.25, 0.5, 1.0]):
+                for lam in [5.0, 20.0]:
+                    c = vcase(t, "fa-frr", [link_fail(*l1), link_fail(*l2, t=T_FAIL + 0.2)],
+                              srlgs=[("duct", [l1, l2])], stop=1.0,
+                              app_kw={"correlation": rho, "lam": lam},
+                              labels={"study": "follow-up", "rho": rho, "lam": lam,
+                                      "failure": f"{'-'.join(l1)} then {'-'.join(l2)}"})
+                    cases.append(c)
+    rows = run_cases(cases, workers)
+    summary = []
+    for key in sorted({(r["h0_ms"], r["delta"]) for r in rows if r["study"] == "flapping"}):
+        rs = [r for r in rows if r["study"] == "flapping" and (r["h0_ms"], r["delta"]) == key]
+        summary.append({"study": "flapping (Abilene, 40/300 ms)", "h0_ms": key[0],
+                        "delta": key[1], "runs": len(rs),
+                        "lost_pkts": round(sum(r["lost"] for r in rs) / len(rs), 1),
+                        "stretch": round(sum(r["stretch"] for r in rs) / len(rs), 3)})
+    for key in sorted({(r["topo"], r["rho"], r["lam"]) for r in rows if r["study"] == "follow-up"}):
+        rs = [r for r in rows if r["study"] == "follow-up"
+              and (r["topo"], r["rho"], r["lam"]) == key]
+        summary.append({"study": f"follow-up ({key[0]})", "rho": key[1], "lam": key[2],
+                        "runs": len(rs),
+                        "flows_hit_last": round(sum(r["flows_hit_last"] for r in rs) / len(rs), 2),
+                        "lost_pkts": round(sum(r["lost"] for r in rs) / len(rs), 1)})
+    return Experiment(
+        "sensitivity", "Sensitivity to the hand-chosen parameters",
+        "Base hold-down h0 and flap penalty delta on slow flapping (Abilene); SRLG "
+        "correlation rho and risk weight lambda on correlated follow-up failures.",
+        rows, summary)
+
+
 ALL = {
     "timeline": exp_timeline,
     "single_link": exp_single_link,
@@ -518,6 +678,9 @@ ALL = {
     "loops": exp_loops,
     "srlg_followup": exp_srlg_followup,
     "risk_dynamic": exp_risk_dynamic,
+    "install_time": exp_install_time,
+    "duct_repair": exp_duct_repair,
+    "sensitivity": exp_sensitivity,
     "state": exp_state,
     "risk_tradeoff": exp_risk_tradeoff,
 }

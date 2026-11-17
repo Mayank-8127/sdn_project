@@ -12,6 +12,7 @@ import csv
 import math
 import multiprocessing as mp
 import os
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -83,6 +84,7 @@ def run_case(case: Case) -> dict:
         if sp:
             stretches.append(f.hops[-1] / len(sp))
     outages = sorted(f.outage() for f in sc.tm.affected() if f.outage() != math.inf)
+    hit_last = hit_by_last_failure(sc, case)
 
     # link load: flows per switch-switch link on the path of each flow's first
     # and last delivered packet (before the failure / after recovery)
@@ -114,11 +116,62 @@ def run_case(case: Case) -> dict:
         looped_pkts=sum(s.stats["looped"] for s in sc.net.switches.values()),
         max_link_flows_before=max_load("first_path"), max_link_flows_after=max_load("last_path"),
         reoptimizations=getattr(sc.ctrl, "reoptimizations", 0),
+        reprotect_ms=reprotect_ms(sc),
+        initial_install_ms=(round(1000 * sc.ctrl.protected_at[1], 1)
+                            if 1 in getattr(sc.ctrl, "protected_at", {}) else None),
+        tags_peak=getattr(sc.ctrl, "tags_peak", 0),
+        flows_hit_last=hit_last[0], pkts_lost_last=hit_last[1],
+        **holddown_stats(sc, case),
         mean_path_delay_ms=1000 * sum(f.delays[0] for f in sc.tm.flows.values() if f.delays)
         / max(1, sum(1 for f in sc.tm.flows.values() if f.delays)),
         wall_s=round(time.perf_counter() - t0, 3),
     )
     return row
+
+
+def failure_times(case: Case) -> list[float]:
+    return sorted(f[3] if f[0] == "link" else f[2] for f in case.failures)
+
+
+def hit_by_last_failure(sc, case: Case) -> tuple[int, int]:
+    """Flows (and their lost packets) hit by the last failure of a case with
+    several failures: losses of packets sent from 50 ms before to 200 ms after
+    it (packets in flight on a cut link were sent just before the cut)."""
+    times = failure_times(case)
+    if len(times) < 2:
+        return 0, 0
+    t = times[-1]
+    flows = pkts = 0
+    for f in sc.tm.flows.values():
+        if not f.lost:
+            continue
+        n = sum(b - a + 1 for a, b in f.loss_runs()
+                if t - 0.05 <= case.start + a / f.rate < t + 0.2)
+        flows += n > 0
+        pkts += n
+    return flows, pkts
+
+
+def holddown_stats(sc, case: Case) -> dict:
+    """Mean hold-down given to recovered links, and the time from the last
+    repair until the last held link was back in service (from the controller log)."""
+    holds = [float(m.group(1)) for _, text in getattr(sc.ctrl, "log", [])
+             for m in [re.search(r"up: hold-down (\d+) ms", text)] if m]
+    repairs = [f[4] for f in case.failures if f[0] == "link" and f[4] is not None]
+    back = [t for t, text in getattr(sc.ctrl, "log", []) if "back in service" in text]
+    after = [t for t in back if repairs and t >= max(repairs)]
+    return {"holddown_ms": round(sum(holds) / len(holds), 1) if holds else None,
+            "back_in_service_ms": round(1000 * (max(after) - max(repairs)), 1) if after else None}
+
+
+def reprotect_ms(sc) -> float | None:
+    """Time from the first failure until FA-FRR's groups were all rewritten."""
+    done = getattr(sc.ctrl, "protected_at", None)
+    t0 = sc.first_failure
+    if not done or t0 is None:
+        return None
+    later = [t for t in done.values() if t > t0]
+    return round(1000 * (min(later) - t0), 3) if later else None
 
 
 def run_cases(cases: list[Case], workers: int | None = None, progress: bool = True) -> list[dict]:

@@ -172,11 +172,36 @@ def gap():
     plt.close(fig)
 
 
+def install_time():
+    rows = load("install_time")
+    fig, ax = plt.subplots(figsize=(3.5, 2.3))
+    styles = {False: "-", True: "--"}
+    for (topo, title), color in zip(TOPOS, [COLOR["fa-frr"], COLOR["reactive"], COLOR["e2e"]]):
+        for of13 in (False, True):
+            rs = [r for r in rows if r["topo"] == topo and str(r["of13"]) == str(of13)
+                  and r["reprotect_ms"] is not None]
+            xs = sorted({r["rule_ms"] for r in rs})
+            ys = [sum(r["reprotect_ms"] for r in rs if r["rule_ms"] == x)
+                  / sum(1 for r in rs if r["rule_ms"] == x) / 1000 for x in xs]
+            ax.plot(xs, ys, styles[of13], marker="o", ms=2.5, lw=1.3, color=color,
+                    label=f"{title}{' + OF1.3 U-turn' if of13 else ''}")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xticks([1, 2.5, 5, 10, 33], ["1", "2.5", "5", "10", "33"])
+    ax.set_xlabel("Installation time per rule or group (ms)")
+    ax.set_ylabel("Re-protection time (s)")
+    ax.grid(True, axis="both")
+    ax.legend(fontsize=6.2, ncol=1, loc="upper left")
+    fig.savefig(OUT / "fig_install.pdf")
+    plt.close(fig)
+
+
 def main():
     OUT.mkdir(exist_ok=True)
     grouped("survival_pct", "Runs with no lost flow (%)", "fig_survival.pdf", (0, 105))
     grouped("lost_pkts", "Packets lost per run", "fig_lost.pdf", log=True)
     gap()
+    install_time()
     bfd()
     risk()
     shutil.copy(RES / "timeline.png", OUT / "fig_timeline.png")
