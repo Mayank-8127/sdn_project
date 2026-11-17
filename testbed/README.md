@@ -99,6 +99,15 @@ The re-optimisation column is measured from the controller's notification to
 the log line `groups installed: protected`, when every group points at the
 new generation; old detour rules are deleted after a further drain time.
 
+Outages are measured from reply timestamps (`ping -D`, written to a file per
+pair): the longest gap between two consecutive replies minus the median gap.
+`ping -i` only sets a minimum interval, and on a loaded host the real pace is
+slower (about 8 ms instead of 2 ms on our machine), so counting lost sequence
+numbers times the interval would understate outages. The table above was
+measured before this change, with 10 ms probes; `results-2ms/` and
+`results-wan/` (2 ms probes, without and with a 5 ms delay on the OpenFlow
+channel) use the timestamp method.
+
 ## Notes on OpenFlow and Open vSwitch
 
 * **U-turn backups.** OpenFlow drops a packet that is output to the port it

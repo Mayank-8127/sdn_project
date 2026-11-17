@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import statistics
 import sys
 import time
 
@@ -97,18 +98,27 @@ def stamp():
     return time.strftime("%H:%M:%S", time.localtime(t)) + f".{int(t * 1000) % 1000:03d}"
 
 
-def parse_ping(out: str, count: int, interval: float = PING_INTERVAL):
-    """(packets lost, longest run of consecutive losses in s, runs as (first, last) seq)."""
-    seqs = {int(m) for m in re.findall(r"icmp_seq=(\d+)", out)}
-    lost = [s for s in range(1, count + 1) if s not in seqs]
-    runs: list[list[int]] = []
-    for s in lost:
-        if runs and runs[-1][1] == s - 1:
-            runs[-1][1] = s
-        else:
-            runs.append([s, s])
-    best = max((b - a + 1 for a, b in runs), default=0)
-    return len(lost), best * interval, runs
+def parse_ping(out: str, count: int, t_fail: float):
+    """Outage statistics from timestamped ping output (``ping -D``).
+
+    ``ping -i`` only sets a minimum gap between probes, and the real pace on a
+    busy host is slower, so outages are measured from reply *timestamps*, not
+    from sequence numbers: the longest gap between consecutive replies minus the
+    typical (median) gap. Returns (probes lost, longest outage in s, median
+    probe gap in s, bursts as (start relative to t_fail in s, outage in s,
+    probes lost)).
+    """
+    replies = sorted((float(t), int(seq)) for t, seq in
+                     re.findall(r"^\[(\d+\.\d+)\].*icmp_seq=(\d+)", out, re.M))
+    lost = count - len({seq for _, seq in replies})
+    if len(replies) < 2:
+        return lost, float("inf"), 0.0, []
+    gaps = [(b[0] - a[0], a, b) for a, b in zip(replies, replies[1:])]
+    base = statistics.median(g for g, _, _ in gaps)
+    bursts = [(a[0] - t_fail, g - base, b[1] - a[1] - 1) for g, a, b in gaps
+              if b[1] - a[1] > 1]
+    longest = max((o for _, o, _ in bursts), default=0.0)
+    return lost, longest, base, bursts
 
 
 def control_delay(port: int, ms: float, on: bool = True) -> None:
@@ -202,12 +212,15 @@ def run_experiment(args, net, sw, hosts, links, topo, interval):
                 set(path_edges(shortest_path(g, topo.hosts[x], topo.hosts[y])))]
     pairs = crossing[:: max(1, len(crossing) // args.pairs)][:args.pairs]
     count = int(args.duration / interval)
-    procs = {}
+    procs, files = {}, {}
     for x, y in pairs:
+        # timestamped replies (-D) into a file, so a full pipe never stalls ping
+        files[(x, y)] = open(f"/tmp/ffr_ping_{x}_{y}.txt", "w+")
         procs[(x, y)] = hosts[x].popen(
-            ["ping", "-n", "-i", f"{interval:g}", "-c", str(count), "-W", "1",
-             hosts[y].IP()])
+            ["ping", "-n", "-D", "-i", f"{interval:g}", "-c", str(count), "-W", "1",
+             hosts[y].IP()], stdout=files[(x, y)], stderr=files[(x, y)])
     time.sleep(args.fail_at)
+    t_fail = time.time()
     print(f"*** {stamp()} failing {args.fail} ({'silent' if args.silent else 'cut'})")
     for (a, b), link in zip(failed, failed_links):
         if args.silent:
@@ -221,15 +234,18 @@ def run_experiment(args, net, sw, hosts, links, topo, interval):
             silent_fail(link, False)
         else:
             net.configLinkStatus(sw[a].name, sw[b].name, "up")
-    print(f"*** results (outage resolution {1000 * interval:g} ms)")
+    print(f"*** results (probe interval {1000 * interval:g} ms requested; outages from "
+          "reply timestamps)")
     for (x, y), p in procs.items():
-        out = p.communicate()[0].decode()
-        lost, outage, runs = parse_ping(out, count, interval)
-        # when each burst of lost probes was sent, relative to the failure
-        when = " ".join(f"{1000 * ((a - 1) * interval - args.fail_at):+.0f}ms x{b - a + 1}"
-                        for a, b in runs)
+        p.wait()
+        f = files[(x, y)]
+        f.seek(0)
+        lost, outage, base, bursts = parse_ping(f.read(), count, t_fail)
+        f.close()
+        # each burst: when it started relative to the failure, its length, probes lost
+        when = " ".join(f"{1000 * t:+.0f}ms {1000 * o:.0f}ms x{n}" for t, o, n in bursts)
         print(f"  {x:>5} -> {y:<5} lost={lost:4d}/{count}  longest outage={1000 * outage:.0f} ms"
-              f"  bursts: {when}")
+              f"  probe gap={1000 * base:.1f} ms  bursts: {when}")
     if args.cli:
         from mininet.cli import CLI
         CLI(net)

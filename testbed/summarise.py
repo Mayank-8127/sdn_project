@@ -24,14 +24,17 @@ LABEL = {
     "srlg-unaware": "duct cut (DEN-KSC + SNV-DEN), SRLG not declared",
     "srlg-aware": "duct cut (DEN-KSC + SNV-DEN), SRLG declared",
 }
-PROBE = re.compile(r"lost=\s*(\d+)/(\d+)\s+longest outage=(\d+) ms(?:\s+bursts:([^\n]*))?")
+PROBE = re.compile(r"lost=\s*(\d+)/(\d+)\s+longest outage=(\d+) ms"
+                   r"(?:\s+probe gap=([\d.]+) ms)?(?:\s+bursts:([^\n]*))?")
 STAMP = re.compile(r"^(\d\d:\d\d:\d\d\.\d{3}) ")
 
 
 def probes(path: Path):
-    # (lost, sent, longest outage ms, number of loss bursts or None for old logs)
-    return [(int(l), int(n), int(o), len(re.findall(r"x\d+", b)) if b else None)
-            for l, n, o, b in PROBE.findall(path.read_text())]
+    # (lost, sent, longest outage ms, loss bursts or None, probe gap ms or None);
+    # old logs have no bursts or probe gap
+    return [(int(l), int(n), int(o), len(re.findall(r"x\d+", b)) if b else None,
+             float(g) if g else None)
+            for l, n, o, g, b in PROBE.findall(path.read_text())]
 
 
 def events(mn: Path, ctl: Path):
@@ -78,9 +81,9 @@ def fmt(values):
 
 def main(folder: str):
     root = Path(folder)
-    print("| scenario | runs | pairs | lost / pair | bursts / pair | mean outage | worst outage "
-          "| controller notified | re-optimisation |")
-    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    print("| scenario | runs | pairs | probe gap | lost / pair | bursts / pair | mean outage "
+          "| worst outage | controller notified | re-optimisation |")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for name in ORDER:
         mn = sorted(root.glob(f"{name}-*.mn.log"))
         if not mn:
@@ -92,7 +95,9 @@ def main(folder: str):
         out = [r[2] for r in rows]
         bursts = [r[3] for r in rows if r[3] is not None]
         b = f"{statistics.mean(bursts):.1f}" if bursts else "-"
-        print(f"| {LABEL[name]} | {len(mn)} | {len(rows)} | "
+        gaps = [r[4] for r in rows if r[4] is not None]
+        g = f"{statistics.mean(gaps):.1f} ms" if gaps else "-"
+        print(f"| {LABEL[name]} | {len(mn)} | {len(rows)} | {g} | "
               f"{statistics.mean(r[0] for r in rows):.1f} | {b} | {statistics.mean(out):.0f} ms | "
               f"{max(out)} ms | {fmt(det)} | {fmt(reo)} |")
 
