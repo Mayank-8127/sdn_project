@@ -19,4 +19,4 @@ python docs/report/build_slides.py    # slides (.pptx + .pdf)
 ```
 
 The result charts come from `docs/results/` (`python -m ffr experiment`) and the
-Mininet table from `testbed/results/summary.md` (`testbed/run_experiments.sh`).
+Mininet table from `testbed/results-2ms/summary.md` (`testbed/run_experiments.sh`).

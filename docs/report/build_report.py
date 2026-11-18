@@ -31,7 +31,8 @@ RES = ROOT / "docs" / "results"
 OUT = HERE / "FA-FRR_Project_Report.docx"
 TITLE = "Failure-Aware Fast Rerouting in Software-Defined Networks"
 STUDENTS = [("Mayank Bansal", "23BEC026"), ("Himanshu Kumar", "23BCS055"),
-            ("Anas Khan", "23BCS083"), ("Shardendu Mishra", "23BCS122")]
+            ("Anas Khan", "23BCS083"), ("Shardendu Mishra", "23BCS122"),
+            ("Divyanshu", "23BEC017")]
 COURSE = "Software Defined Networks (EC-466)"
 GUIDE = "Dr. Jagadeesha R B"
 YEAR = "2026–27"
@@ -901,10 +902,12 @@ def _md_section_table(section):
 
 
 def _testbed_rows():
-    """Rows of testbed/results/summary.md, written by testbed/summarise.py."""
-    lines = [l for l in (ROOT / "testbed" / "results" / "summary.md").read_text().splitlines()
+    """Rows of testbed/results-2ms/summary.md (local controller), written by
+    testbed/summarise.py, without the probe-gap and bursts columns."""
+    lines = [l for l in (ROOT / "testbed" / "results-2ms" / "summary.md").read_text().splitlines()
              if l.startswith("|")]
-    return [[c.strip() for c in l.strip("|").split("|")] for l in lines[2:]]
+    rows = [[c.strip() for c in l.strip("|").split("|")] for l in lines[2:]]
+    return [[r[i] for i in (0, 1, 2, 4, 6, 7, 8, 9)] for r in rows]
 
 
 def _res_table(R, section, apps, caption, topos=("abilene", "nsfnet")):
@@ -1029,28 +1032,30 @@ def ch_results(R: Report):
     R.h2("7.10 Validation on Mininet and Open vSwitch")
     R.p("The OS-Ken controller ran against eleven Open vSwitch switches in Mininet on the "
         "Abilene topology, with link delays from the fibre distances. Hosts whose shortest "
-        "path crosses a failed link ping each other every 10 ms; the longest run of lost "
-        "probes gives the outage to the nearest 10 ms. A failure lasts 2 s and each scenario "
+        "path crosses a failed link ping each other as fast as ping allows (2 ms requested, "
+        "8–9.5 ms achieved and measured per pair); the outage is the number of probes lost "
+        "in the longest burst times the probe interval. A failure lasts 2 s and each scenario "
         "was run five times (Table 7.7). A gray failure is made with a tc filter that drops "
         "every received frame while the interfaces stay up.", indent=1.0)
     R.table(["Scenario", "Runs", "Pairs", "Lost / pair", "Mean outage", "Worst outage",
              "Controller notified", "Re-optimisation"], _testbed_rows(),
-            "FA-FRR on Mininet with Open vSwitch (Abilene, 2 s failures, 10 ms probes)",
+            "FA-FRR on Mininet with Open vSwitch (Abilene, 2 s failures, local controller)",
             widths=[4.6, 1.1, 1.2, 1.5, 1.7, 1.7, 2.0, 2.0], size=8.5)
     R.p("On a link cut, Open vSwitch sees the carrier drop and the fast-failover group moves "
-        "traffic to the backup without the controller: the mean outage is 14 ms, one or two "
-        "probes, most of it packets in flight on the cut link. The controller hears of the "
-        "cut about 8 ms after it happens and has the next generation of backups active about "
-        "30 ms later, after traffic has already moved. A gray failure without BFD is never "
+        "traffic to the backup without the controller: the mean outage is 15 ms, one or two "
+        "probes. The controller hears of the cut about 8 ms after it happens and has every "
+        "group of the next generation in place 34 ms later, after traffic has already moved; "
+        "with a 5 ms delay on the control channel this grows to 77 ms while the outage stays "
+        "the same. A gray failure without BFD is never "
         "detected and traffic is lost for the whole failure; with OVS BFD (10 ms × 3) the "
-        "outage drops to 40 ms, matching the detection-dominated behaviour of Section 7.4. "
+        "outage drops to 41 ms, matching the detection-dominated behaviour of Section 7.4. "
         "Open vSwitch does not report BFD-detected failures as PORT_STATUS, so the data plane "
         "reroutes but the controller does not re-optimise. When both links of the Abilene "
-        "duct fail at once, declaring the shared risk group halves the mean outage (38 to "
-        "20 ms) and the worst outage (60 to 30 ms), because the backups no longer use the "
+        "duct fail at once, declaring the shared risk group halves the mean outage (52 to "
+        "26 ms) and the worst outage (98 to 49 ms), because the backups no longer use the "
         "other link of the duct. On this testbed the controller is local, so flows on a dead "
-        "backup are rescued by re-optimisation within tens of milliseconds; over a WAN control "
-        "channel the difference would be larger, as the emulator results show.", indent=1.0)
+        "backup are rescued by re-optimisation within tens of milliseconds; with a 5 ms control "
+        "channel their mean outage grows to 70 ms while the declared case stays at 27 ms.", indent=1.0)
     R.h2("7.11 Summary of Results")
     R.table(["Failure model (Abilene / NSFNET)", "reactive", "frr-node", "e2e", "fa-frr"], [
         ["single link: mean outage (ms)", "23.2 / 21.2", "5.9 / 4.0", "18.7 / 10.4", "**5.9 / 4.0**"],
@@ -1199,8 +1204,8 @@ python -m venv .venv && .venv/bin/pip install -e '.[dev,plots]'
 sudo .venv-testbed/bin/python testbed/mininet_ffr.py --topo abilene --fail DEN-KSC
 FFR_TOPO=/tmp/ffr_topo.json .venv-testbed/bin/python testbed/run_controller.py
 
-# all Mininet scenarios, five runs each (logs and summary in testbed/results/)
-testbed/run_experiments.sh .venv-testbed/bin/python 5
+# all Mininet scenarios, five runs each (logs and summary in testbed/results-2ms/)
+PING_MS=2 RESULTS=testbed/results-2ms testbed/run_experiments.sh .venv-testbed/bin/python 5
 """, size=8.5)
     R.p("Example output for the SRLG double failure under FA-FRR:", indent=1.0)
     R.code("[fa-frr] flows=110 sent=66000 lost=413 (0.63%) affected_flows=50 never_recovered=0\n"

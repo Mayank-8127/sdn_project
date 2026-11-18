@@ -24,7 +24,8 @@ FIG = HERE / "figures"
 RES = ROOT / "docs" / "results"
 OUT = HERE / "FA-FRR_Presentation.pptx"
 STUDENTS = [("Mayank Bansal", "23BEC026"), ("Himanshu Kumar", "23BCS055"),
-            ("Anas Khan", "23BCS083"), ("Shardendu Mishra", "23BCS122")]
+            ("Anas Khan", "23BCS083"), ("Shardendu Mishra", "23BCS122"),
+            ("Divyanshu", "23BEC017")]
 COURSE = "Software Defined Networks (EC-466)"
 GUIDE = "Dr. Jagadeesha R B"
 YEAR = "2026–27"
@@ -416,19 +417,19 @@ def testbed(D):
 
 def testbed_results(D):
     s = D.slide("Mininet results: Abilene, Open vSwitch, 5 runs per scenario", "Results")
-    lines = [l for l in (ROOT / "testbed" / "results" / "summary.md").read_text().splitlines()
+    lines = [l for l in (ROOT / "testbed" / "results-2ms" / "summary.md").read_text().splitlines()
              if l.startswith("|")][2:]
     rows = []
     for l in lines:
         c = [x.strip() for x in l.strip("|").split("|")]
-        rows.append([c[0], c[4], c[5], c[6], c[7]])
+        rows.append([c[0], c[6], c[7], c[8], c[9]])
     D.table(s, Inches(0.5), Inches(1.6), Inches(12.3),
             ["Scenario", "Mean outage", "Worst outage", "Controller told", "Re-optimised in"],
             rows, col_w=[5.5, 1.7, 1.7, 1.7, 1.7], size=14, row_h=0.55)
     D.callout(s, Inches(0.5), Inches(5.4), Inches(12.3), Inches(1.2),
               "Cut: the FF group reroutes before the controller even hears of it. Gray failure: "
-              "**BFD** turns 1.8 s of loss into 40 ms. Duct cut: declaring the SRLG **halves** the "
-              "outage (38 → 20 ms).", 15)
+              "**BFD** turns 2 s of loss into 41 ms. Duct cut: declaring the SRLG **halves** the "
+              "outage (52 → 26 ms).", 15)
 
 
 def conclusion(D):

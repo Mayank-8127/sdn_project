@@ -9,6 +9,7 @@ Course project for **Software Defined Networks (EC-466)**, guided by
 | Himanshu Kumar | 23BCS055 |
 | Anas Khan | 23BCS083 |
 | Shardendu Mishra | 23BCS122 |
+| Divyanshu | 23BEC017 |
 
 This project designs and evaluates **Failure-Aware Fast Reroute (FA-FRR)**, a
 failure-recovery scheme for OpenFlow networks. Switches recover from a failure
