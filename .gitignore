@@ -10,3 +10,4 @@ notes/
 !/paper/README.md
 !/paper/make_figures.py
 !/paper/*.pdf
+/deep_review/
