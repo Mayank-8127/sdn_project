@@ -22,11 +22,22 @@ learns how the network fails and keeps the backups up to date. It has:
   `frr-srlg`, `e2e`, `e2e-srlg` and the proposed `fa-frr` (plus FA-FRR
   ablations that switch off one mechanism each, used by the experiments);
 * an **evaluation suite** of 4634 simulations on the Abilene and NSFNET
-  backbones that regenerates every result in the paper;
+  backbones and a 25-switch grid that regenerates every result in the paper;
 * a port of FA-FRR to a real **OpenFlow 1.3 controller** (OS-Ken) for
   Mininet and Open vSwitch, with the results of the Mininet runs.
 
 The paper is `paper/Failure_Aware_Fast_Rerouting_in_Software_Defined_Networks.pdf`.
+
+The submission ZIP also contains:
+
+* `Overleaf_Source.zip`: the paper's LaTeX source (`main.tex`, `refs.bib`,
+  `figures/`). Upload it to Overleaf as a new project and compile with
+  pdfLaTeX.
+* `deep_review/`: every version of the paper that went through Google Deep
+  Review, the review comments of each round (verbatim) and the revision
+  report for each round, also combined in
+  `deep_review/Revision_Report_All_Rounds.pdf`. Start with
+  `deep_review/README.md`.
 
 ## Headline result
 
